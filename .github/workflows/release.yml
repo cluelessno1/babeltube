@@ -1,0 +1,24 @@
+name: Release store ZIP
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Chrome Web Store ZIP
+        run: bash scripts/package-store.sh
+
+      - name: Attach ZIP to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: babeltube-store.zip
+          fail_on_unmatched_files: true

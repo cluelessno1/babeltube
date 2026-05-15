@@ -183,19 +183,18 @@ youtube.js receives event
 
 1. **Test** — load unpacked from the repo; see [Testing](STORE_PUBLISH.md#testing-before-you-package).
 2. **Bump version** in `manifest.json` (required for each store upload).
-3. **Package:**
-   ```powershell
-   cd C:\Repos\babeltube
-   .\scripts\package-store.ps1
-   ```
+3. **Package** — `.\scripts\package-store.ps1` (Windows) or `bash scripts/package-store.sh` (macOS/Linux).
 4. **Test staging** — load unpacked from `%TEMP%\babeltube-store` (path printed by the script).
 5. **Upload** `babeltube-store.zip` in the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Package** tab → **Submit for review**.
+
+**GitHub Releases:** Publish a release on GitHub → the [release workflow](.github/workflows/release.yml) builds and attaches `babeltube-store.zip` automatically. Use a tag like `v1.0.1` to match `manifest.json`.
 
 ### Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/package-store.ps1` | Build `babeltube-store.zip` for upload |
+| `scripts/package-store.ps1` | Build `babeltube-store.zip` (Windows) |
+| `scripts/package-store.sh` | Build `babeltube-store.zip` (macOS/Linux/CI) |
 | `scripts/resize-icons.py` | Regenerate 16 / 48 / 128 icons (`pip install pillow`) |
 | `scripts/resize-store-screenshots.py` | Resize listing screenshots to 1280×800 |
 
@@ -215,8 +214,10 @@ babeltube/
 ├── manifest.json                   # Extension manifest (MV3)
 ├── STORE_PUBLISH.md                # Chrome Web Store submit checklist
 ├── docs/privacy.html               # Privacy policy (host at public HTTPS URL)
+├── .github/workflows/release.yml   # Attach store ZIP on GitHub Release
 ├── scripts/
-│   ├── package-store.ps1           # Build babeltube-store.zip
+│   ├── package-store.ps1           # Build babeltube-store.zip (Windows)
+│   ├── package-store.sh            # Build babeltube-store.zip (bash)
 │   ├── resize-icons.py             # Regenerate 16/48/128 icons from icon128
 │   └── resize-store-screenshots.py # Resize store screenshots to 1280x800
 ├── store/                          # Listing screenshots (not in ZIP)
@@ -241,4 +242,4 @@ babeltube/
 
 ## License
 
-MIT
+GNU General Public License v3.0 — see [LICENSE](LICENSE).

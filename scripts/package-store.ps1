@@ -30,3 +30,4 @@ Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $outZip -Force
 
 Write-Host "Created: $outZip"
 Write-Host "Staging folder (for Load unpacked test): $staging"
+Write-Host "Tip: Publish a GitHub Release to attach this ZIP via CI (see .github/workflows/release.yml)."

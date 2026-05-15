@@ -86,6 +86,8 @@ python scripts\resize-icons.py
 
 Re-run the script after any change you intend to ship.
 
+**GitHub Release:** Publishing a release on GitHub runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and attaches `babeltube-store.zip` to that release. Download it from the release assets or build locally with the commands above.
+
 ---
 
 ## Republish an update (after first approval)
