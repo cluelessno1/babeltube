@@ -2,29 +2,40 @@
 
 Chrome Web Store requires **at least one** screenshot. Recommended: **1280×800** PNG or JPEG (also accepts 640×400).
 
-## Suggested captures
+**Not bundled** in the extension ZIP — for the dashboard listing only.
 
-1. **Watch page** — foreign-language video with subtitles visible (optional: translation banner).
-2. **Popup** — toolbar icon open on a watch page showing detected language / status.
-3. **Settings** — options page with target language and toggles.
+---
 
-## How to capture on Windows
+## Capture
 
-1. Open a foreign-language YouTube watch page (e.g. Korean with English target in settings).
-2. Press **Win + Shift + S** → rectangular snip, or use Chrome full-page if needed.
-3. Resize/crop to **1280×800** in Paint, Photos, or an editor.
-4. Save as `store/screenshot-1.png` (etc.) for your records; upload files in the developer dashboard.
+1. Open a foreign-language YouTube **watch page** (e.g. Korean with English target in BabelTube settings).
+2. Take shots that match what users will see:
+   - Watch page with subtitles (and optional banner)
+   - Toolbar popup on a watch page
+   - BabelTube settings page
+3. On Windows: **Win + Shift + S** → save PNG into this `store/` folder.
 
-### Resize your captures for the store
+Suggested test video: `https://www.youtube.com/watch?v=g6nXwkduldA`
 
-Drop PNG/JPEG captures in this folder (any size), then run:
+---
+
+## Resize for upload
+
+Drop PNG/JPEG files here (any size; any filename except existing `screenshot-N.png` outputs), then:
 
 ```powershell
+cd C:\Repos\babeltube
 python scripts/resize-store-screenshots.py
 ```
 
-Outputs **`screenshot-1.png`**, **`screenshot-2.png`**, … at **1280×800** (letterboxed on a dark background so nothing is cropped). Upload those to the Chrome Web Store.
+**Outputs:** `screenshot-1.png`, `screenshot-2.png`, … at **1280×800** (letterboxed on a dark background so UI is not cropped).
 
-Original files are left unchanged. Re-run after adding more captures.
+Upload those files in the dashboard **Store listing** tab. Re-run after adding new captures.
 
-These files are **not** bundled in the extension ZIP.
+**Tip:** Use real UI screenshots for review. Replace draft/placeholder images before submit if you used any.
+
+---
+
+## When to update screenshots
+
+Update listing images when you **republish** and the UI changed materially. See [STORE_PUBLISH.md → Republish](../STORE_PUBLISH.md#republish-an-update-after-first-approval).

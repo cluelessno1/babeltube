@@ -2,6 +2,10 @@
 
 Chrome Web Store requires a **public HTTPS URL** to `privacy.html`.
 
+**Live URL:** `https://cluelessno1.github.io/babeltube/privacy.html`
+
+If you change what data the extension accesses, update `privacy.html`, push to GitHub, wait for Pages to redeploy, and update the **Privacy** tab in the developer dashboard before republishing. See [STORE_PUBLISH.md](../STORE_PUBLISH.md).
+
 ## GitHub Pages
 
 1. Ensure this file is available on a **public** branch (main repo public, or a small public repo with only `docs/`).

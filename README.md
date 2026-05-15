@@ -27,9 +27,26 @@
    ```
 2. Open Chrome and navigate to `chrome://extensions`.
 3. Enable **Developer mode** (toggle in the top-right corner).
-4. Click **Load unpacked** and select the `babeltube` folder.
+4. Click **Load unpacked** and select the `babeltube` folder (repo root).
 5. The BabelTube icon (🗼) will appear in your Chrome toolbar.
-6. Navigate to any YouTube video in a foreign language and BabelTube will activate automatically.
+6. Navigate to any **YouTube watch page** in a foreign language (not Shorts) and BabelTube will activate automatically.
+7. After code changes, click **Reload** on the extension card at `chrome://extensions`.
+
+### What to test
+
+| Check | Expected |
+|-------|----------|
+| Foreign-language video + English target (in settings) | Subtitles switch to English (human or ASR + translate) |
+| Translation banner (if enabled) | Banner appears and dismisses per settings |
+| Toolbar popup on a watch page | Shows video/caption status |
+| Popup on non-watch YouTube tab | Message that page is not supported |
+| Switch video via in-page navigation (no full reload) | BabelTube runs on the new video |
+| Options toggles | Save and persist after reload |
+| Same language as target | No banner / no forced subtitle change |
+
+Example test video: `https://www.youtube.com/watch?v=g6nXwkduldA` (Korean).
+
+Full checklist (ads, staging folder, pre-upload): **[STORE_PUBLISH.md → Testing](STORE_PUBLISH.md#testing-before-you-package)**.
 
 ---
 
@@ -157,48 +174,34 @@ youtube.js receives event
 
 ## Publishing to the Chrome Web Store
 
-See **[STORE_PUBLISH.md](STORE_PUBLISH.md)** for the full dashboard checklist (privacy practices answers, distribution, submit).
+**[STORE_PUBLISH.md](STORE_PUBLISH.md)** is the main guide: testing, building the ZIP, first-time listing/privacy copy, and **republishing updates**.
 
-### Pre-publish checklist
+### Release workflow (summary)
 
-- [x] Icons: run `python scripts/resize-icons.py` (requires `pip install pillow`) for **16×16**, **48×48**, **128×128** PNGs.
-- [ ] Host **[docs/privacy.html](docs/privacy.html)** at a public HTTPS URL (GitHub Pages, Google Sites, etc.).
-- [ ] Capture **1280×800** store screenshots — see [store/SCREENSHOTS.md](store/SCREENSHOTS.md).
-- [ ] Register a [Chrome Web Store developer account](https://chrome.google.com/webstore/devconsole) ($5 one-time).
-- [ ] Review [Chrome Web Store Program Policies](https://developer.chrome.com/docs/webstore/program-policies/).
-- [ ] Confirm **debug mode is OFF** before packaging (it's off by default).
-- [ ] Bump the version in `manifest.json` before each submission.
+1. **Test** — load unpacked from the repo; see [Testing](STORE_PUBLISH.md#testing-before-you-package).
+2. **Bump version** in `manifest.json` (required for each store upload).
+3. **Package:**
+   ```powershell
+   cd C:\Repos\babeltube
+   .\scripts\package-store.ps1
+   ```
+4. **Test staging** — load unpacked from `%TEMP%\babeltube-store` (path printed by the script).
+5. **Upload** `babeltube-store.zip` in the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Package** tab → **Submit for review**.
 
-### Store listing template
+### Scripts
 
-**Short description (132 chars max):**
-> Auto-selects subtitles and guides page translation for foreign-language YouTube videos.
+| Script | Purpose |
+|--------|---------|
+| `scripts/package-store.ps1` | Build `babeltube-store.zip` for upload |
+| `scripts/resize-icons.py` | Regenerate 16 / 48 / 128 icons (`pip install pillow`) |
+| `scripts/resize-store-screenshots.py` | Resize listing screenshots to 1280×800 |
 
-**Detailed description:**
-> BabelTube detects when a YouTube video is in a language you don't understand and automatically selects the best subtitles — human-made if available, or auto-generated with translation as a fallback. It also shows a handy banner reminding you to use Chrome's built-in right-click page translation.
->
-> No API keys. No subscriptions. Works entirely with YouTube's own data.
->
-> Features:
-> • Automatic subtitle/caption selection in your target language
-> • Auto-translate fallback using YouTube's own engine
-> • Translation reminder banner with configurable auto-dismiss
-> • Supports 100+ target languages
-> • Settings sync across all your Chrome devices
+### Store assets
 
-### Privacy policy
-
-Publish **[docs/privacy.html](docs/privacy.html)** at a public HTTPS URL. See **[docs/README.md](docs/README.md)** for GitHub Pages or Google Sites steps.
-
-### Packaging
-
-```powershell
-.\scripts\package-store.ps1
-```
-
-Creates `babeltube-store.zip` (no `.git`, files at archive root). Test via **Load unpacked** using the staging folder path printed by the script.
-
-Upload `babeltube-store.zip` at the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+- **Privacy policy:** [docs/privacy.html](docs/privacy.html) — host via [docs/README.md](docs/README.md)  
+  Live URL: `https://cluelessno1.github.io/babeltube/privacy.html`
+- **Screenshots:** [store/SCREENSHOTS.md](store/SCREENSHOTS.md)
+- **Listing / privacy form text:** [STORE_PUBLISH.md](STORE_PUBLISH.md)
 
 ---
 
@@ -211,8 +214,10 @@ babeltube/
 ├── docs/privacy.html               # Privacy policy (host at public HTTPS URL)
 ├── scripts/
 │   ├── package-store.ps1           # Build babeltube-store.zip
-│   └── resize-icons.py             # Regenerate 16/48/128 icons from icon128
-├── store/SCREENSHOTS.md            # Screenshot capture guide
+│   ├── resize-icons.py             # Regenerate 16/48/128 icons from icon128
+│   └── resize-store-screenshots.py # Resize store screenshots to 1280x800
+├── store/                          # Listing screenshots (not in ZIP)
+│   └── SCREENSHOTS.md
 ├── background.js                   # Service worker — seeds default settings on install
 ├── content_scripts/
 │   ├── page-reader.js              # MAIN world — reads YouTube JS globals
