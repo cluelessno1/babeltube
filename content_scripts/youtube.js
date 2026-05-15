@@ -370,7 +370,7 @@ async function handlePageData(pageData) {
     log.dim('Subtitle selection disabled in settings.');
   }
 
-  log.info('▶ Done.');
+  log.info('▶ Done (isolated world). Subtitle apply continues in page-reader.js — watch for [BabelTube:reader] logs, especially after ads.');
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
