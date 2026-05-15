@@ -9,11 +9,31 @@
  *     b. Automatically select the best subtitle track via YouTube's player API.
  *        Priority: human subs in target lang → ASR track + auto-translate → nothing.
  *
+ * DEBUG: All decisions are logged under the [BabelTube] prefix.
+ *        Open Chrome DevTools (F12) → Console on any YouTube watch page to see them.
+ *        Filter by "BabelTube" to isolate logs.
+ *
  * NOTE: YouTube Shorts (youtube.com/shorts/) are intentionally excluded.
  * TODO: Shorts support (youtube.com/shorts/)
  */
 
 'use strict';
+
+// ─── Debug logger ─────────────────────────────────────────────────────────────
+
+const LOG_PREFIX = '%c[BabelTube]';
+const LOG_STYLE  = 'color:#ff4444;font-weight:bold';
+const LOG_STYLE_DIM = 'color:#888;font-weight:normal';
+
+const log = {
+  info:  (...args) => console.log(LOG_PREFIX, LOG_STYLE, ...args),
+  warn:  (...args) => console.warn(LOG_PREFIX, LOG_STYLE, ...args),
+  error: (...args) => console.error(LOG_PREFIX, LOG_STYLE, ...args),
+  dim:   (...args) => console.log(LOG_PREFIX, LOG_STYLE_DIM, ...args),
+  group: (label)   => console.groupCollapsed(`${LOG_PREFIX.replace('%c', '')} ${label}`),
+  groupEnd: ()     => console.groupEnd(),
+  table: (data)    => { console.log(LOG_PREFIX, LOG_STYLE, 'Table:'); console.table(data); },
+};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -36,6 +56,7 @@ async function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(null, (items) => {
       settings = { ...settings, ...items };
+      log.dim('Settings loaded:', JSON.stringify(settings));
       resolve();
     });
   });
@@ -49,40 +70,62 @@ async function loadSettings() {
  *
  * YouTube exposes ytInitialPlayerResponse as a global. We look in two places:
  *  1. captions.playerCaptionsTracklistRenderer.audioTracks (multi-audio videos)
- *  2. videoDetails.defaultAudioTrackIndex / playerConfig.audioConfig
- *  3. The first captionTrack's languageCode as a proxy for the audio language
+ *  2. The first captionTrack's languageCode as a proxy for the audio language
  */
 function detectVideoLanguage() {
-  try {
-    const ipr = window.ytInitialPlayerResponse;
-    if (!ipr) return null;
+  const ipr = window.ytInitialPlayerResponse;
 
-    // Multi-audio-track videos expose audio language directly
+  if (!ipr) {
+    log.warn('ytInitialPlayerResponse is not available on this page yet.');
+    return null;
+  }
+
+  log.dim('ytInitialPlayerResponse found. Checking audio/caption data...');
+
+  try {
+    // Path 1 — multi-audio-track videos expose audio language directly
     const audioTracks =
       ipr?.captions?.playerCaptionsTracklistRenderer?.audioTracks;
     if (audioTracks && audioTracks.length > 0) {
-      const defaultIdx = ipr.captions.playerCaptionsTracklistRenderer
-        .defaultAudioTrackIndex ?? 0;
+      const defaultIdx =
+        ipr.captions.playerCaptionsTracklistRenderer.defaultAudioTrackIndex ?? 0;
       const track = audioTracks[defaultIdx] ?? audioTracks[0];
-      const langCode = track?.captionTrackIndices?.[0] !== undefined
-        ? ipr.captions.playerCaptionsTracklistRenderer.captionTracks?.[
-            track.captionTrackIndices[0]
-          ]?.languageCode
-        : null;
-      if (langCode) return langCode.toLowerCase();
+      const ctIdx = track?.captionTrackIndices?.[0];
+      if (ctIdx !== undefined) {
+        const langCode =
+          ipr.captions.playerCaptionsTracklistRenderer.captionTracks?.[ctIdx]
+            ?.languageCode;
+        if (langCode) {
+          log.info(`Language detected via audioTracks[${defaultIdx}]: "${langCode}"`);
+          return langCode.toLowerCase();
+        }
+      }
+      log.dim('audioTracks present but could not resolve languageCode from captionTrackIndices.');
+    } else {
+      log.dim('No audioTracks in playerCaptionsTracklistRenderer.');
     }
 
-    // Fall back: infer from the default/first caption track
+    // Path 2 — infer from caption tracks
     const captionTracks =
       ipr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (captionTracks && captionTracks.length > 0) {
-      // Non-ASR (human) tracks are more reliable indicators of the content language
+      log.dim(`${captionTracks.length} caption track(s) found. Using first non-ASR as language proxy.`);
       const humanTrack = captionTracks.find((t) => t.kind !== 'asr');
       const track = humanTrack ?? captionTracks[0];
-      return track.languageCode?.toLowerCase() ?? null;
+      const langCode = track.languageCode?.toLowerCase() ?? null;
+      log.info(`Language detected via captionTracks fallback: "${langCode}" (kind="${track.kind}", name="${track.name?.simpleText}")`);
+      return langCode;
     }
+
+    log.warn(
+      'Could not detect video language: no audioTracks and no captionTracks found in ytInitialPlayerResponse. ' +
+      'This video may have no captions at all (e.g. hardcoded/burned-in subtitles).'
+    );
+    // Dump the captions object so we can inspect it
+    log.dim('ytInitialPlayerResponse.captions =', JSON.stringify(ipr?.captions ?? null, null, 2));
+
   } catch (e) {
-    // ytInitialPlayerResponse structure varies; fail gracefully
+    log.error('Exception while reading ytInitialPlayerResponse:', e);
   }
   return null;
 }
@@ -92,10 +135,10 @@ function detectVideoLanguage() {
  */
 function getCaptionTracks() {
   try {
-    return (
+    const tracks =
       window.ytInitialPlayerResponse?.captions
-        ?.playerCaptionsTracklistRenderer?.captionTracks ?? []
-    );
+        ?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+    return tracks;
   } catch {
     return [];
   }
@@ -121,7 +164,10 @@ function removeBanner() {
 }
 
 function showBanner(detectedLangName) {
-  if (document.getElementById(BANNER_ID)) return; // already visible
+  if (document.getElementById(BANNER_ID)) {
+    log.dim('Banner already visible — skipping.');
+    return;
+  }
 
   const targetName = settings.targetLanguageName || 'English';
   const sourceName = detectedLangName || 'a foreign language';
@@ -149,20 +195,17 @@ function showBanner(detectedLangName) {
     borderBottom: '2px solid #ff4444',
   });
 
-  // Logo/icon text
   const logo = document.createElement('span');
   logo.textContent = '🗼';
   logo.style.fontSize = '16px';
   logo.setAttribute('aria-hidden', 'true');
 
-  // Message
   const msg = document.createElement('span');
   msg.style.flex = '1';
   msg.innerHTML =
     `<strong>BabelTube</strong> detected this video is in <strong>${sourceName}</strong>. ` +
     `Right-click anywhere on the page and select <strong>"Translate to ${targetName}"</strong> to translate the page using Chrome.`;
 
-  // Dismiss button
   const btn = document.createElement('button');
   btn.textContent = '✕';
   btn.title = 'Dismiss';
@@ -177,6 +220,7 @@ function showBanner(detectedLangName) {
     flexShrink: '0',
   });
   btn.addEventListener('click', () => {
+    log.dim('Banner dismissed by user.');
     markBannerDismissed(getVideoId());
     removeBanner();
   });
@@ -185,15 +229,18 @@ function showBanner(detectedLangName) {
   banner.appendChild(msg);
   banner.appendChild(btn);
   document.body.prepend(banner);
+  log.info(`Banner shown: video is "${sourceName}", target is "${targetName}".`);
 
-  // Auto-dismiss
   const duration = settings.bannerDismissDuration;
   if (duration > 0) {
+    log.dim(`Banner will auto-dismiss in ${duration}s.`);
     setTimeout(() => {
       banner.style.transition = 'opacity 0.5s ease';
       banner.style.opacity = '0';
       setTimeout(removeBanner, 500);
     }, duration * 1000);
+  } else {
+    log.dim('Banner auto-dismiss is disabled (set to Never).');
   }
 }
 
@@ -201,18 +248,23 @@ function showBanner(detectedLangName) {
 
 /**
  * Waits for the YouTube player element to expose the setOption method.
- * Returns the player element or null if it times out.
  */
 function waitForPlayer() {
   return new Promise((resolve) => {
     const start = Date.now();
+    log.dim('Waiting for #movie_player to be ready (setOption available)...');
     const check = () => {
       const player = document.querySelector('#movie_player');
       if (player && typeof player.setOption === 'function') {
+        log.dim(`Player ready after ${Date.now() - start}ms.`);
         resolve(player);
         return;
       }
       if (Date.now() - start > PLAYER_READY_TIMEOUT_MS) {
+        log.warn(
+          `Player not ready after ${PLAYER_READY_TIMEOUT_MS}ms timeout. ` +
+          `#movie_player found: ${!!player}, setOption available: ${typeof player?.setOption}`
+        );
         resolve(null);
         return;
       }
@@ -227,31 +279,55 @@ function waitForPlayer() {
  *
  * Priority:
  *  1. Human-made subtitle track in target language (kind !== 'asr')
- *  2. Any track with translatable content (ASR) + auto-translate to target lang
- *  3. Give up silently (no captions available to auto-select)
+ *  2. ASR (auto-generated) track + auto-translate to target language
+ *  3. Any non-target track + auto-translate (last resort)
+ *  4. Give up — no usable tracks
  */
 async function selectBestSubtitleTrack(player) {
   const tracks = getCaptionTracks();
   const target = settings.targetLanguage.toLowerCase();
 
-  if (!tracks.length) return;
+  log.group('Subtitle track selection');
+
+  if (!tracks.length) {
+    log.warn('No caption tracks found in ytInitialPlayerResponse — cannot auto-select subtitles.');
+    log.groupEnd();
+    return;
+  }
+
+  log.info(`${tracks.length} caption track(s) available:`);
+  log.table(
+    tracks.map((t) => ({
+      languageCode: t.languageCode,
+      kind: t.kind ?? 'human',
+      name: t.name?.simpleText ?? t.name?.runs?.[0]?.text ?? '?',
+      vssId: t.vssId,
+    }))
+  );
 
   // 1. Human subtitles in target language
   const humanTrack = tracks.find(
     (t) => t.languageCode?.toLowerCase() === target && t.kind !== 'asr'
   );
   if (humanTrack) {
+    log.info(`✓ Found human subtitle track in target language "${target}". Selecting it.`);
     player.setOption('captions', 'track', {
       languageCode: humanTrack.languageCode,
       vssId: humanTrack.vssId,
     });
+    log.groupEnd();
     return;
   }
+  log.dim(`No human subtitle track found for target language "${target}".`);
 
-  // 2. ASR auto-generated track (any language) + request auto-translate
+  // 2. ASR auto-generated track + auto-translate
   if (settings.enableAutoTranslateFallback) {
     const asrTrack = tracks.find((t) => t.kind === 'asr');
     if (asrTrack) {
+      log.info(
+        `✓ No human subs in "${target}". Using ASR track (lang="${asrTrack.languageCode}") ` +
+        `with auto-translate → "${target}".`
+      );
       player.setOption('captions', 'track', {
         languageCode: asrTrack.languageCode,
         vssId: asrTrack.vssId,
@@ -260,14 +336,18 @@ async function selectBestSubtitleTrack(player) {
           languageCode: settings.targetLanguage,
         },
       });
+      log.groupEnd();
       return;
     }
+    log.dim('No ASR track found. Trying any non-target track as last resort...');
 
-    // Last resort: any non-target-language track with auto-translate
-    const anyTrack = tracks.find(
-      (t) => t.languageCode?.toLowerCase() !== target
-    );
+    // Last resort
+    const anyTrack = tracks.find((t) => t.languageCode?.toLowerCase() !== target);
     if (anyTrack) {
+      log.info(
+        `✓ Last resort: using track (lang="${anyTrack.languageCode}", kind="${anyTrack.kind ?? 'human'}") ` +
+        `with auto-translate → "${target}".`
+      );
       player.setOption('captions', 'track', {
         languageCode: anyTrack.languageCode,
         vssId: anyTrack.vssId,
@@ -276,61 +356,107 @@ async function selectBestSubtitleTrack(player) {
           languageCode: settings.targetLanguage,
         },
       });
+      log.groupEnd();
+      return;
     }
+
+    log.warn('All tracks are already in the target language. Nothing to do.');
+  } else {
+    log.dim('Auto-translate fallback is disabled in settings. Skipping ASR tracks.');
   }
+
+  log.warn('Could not select any subtitle track.');
+  log.groupEnd();
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
-/**
- * Returns a human-readable language name for a BCP-47 language code.
- * Falls back to the raw code if Intl.DisplayNames is unavailable.
- */
 function getLanguageName(code) {
   try {
-    const displayNames = new Intl.DisplayNames(['en'], { type: 'language' });
-    return displayNames.of(code) ?? code;
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
   } catch {
     return code;
   }
 }
 
 async function handleNavigation() {
+  const url = window.location.href;
+  const videoId = getVideoId();
+
   // Only act on watch pages (not Shorts)
-  if (!window.location.pathname.startsWith('/watch')) return;
+  if (!window.location.pathname.startsWith('/watch')) {
+    log.dim(`Skipping non-watch page: ${window.location.pathname}`);
+    return;
+  }
+
+  log.info(`▶ Navigation detected. URL: ${url} | Video ID: ${videoId}`);
 
   await loadSettings();
 
+  // ── Language detection ────────────────────────────────────────────────────
   const detectedCode = detectVideoLanguage();
-  if (!detectedCode) return; // can't determine language — do nothing
 
-  const target = settings.targetLanguage.toLowerCase();
-  if (detectedCode === target) return; // video already in target language
-
-  const detectedName = getLanguageName(detectedCode);
-  const videoId = getVideoId();
-
-  // Banner
-  if (settings.showBanner && !isBannerDismissedForVideo(videoId)) {
-    showBanner(detectedName);
+  if (!detectedCode) {
+    log.warn(
+      'Language detection returned null. ' +
+      'Possible reasons: no caption tracks on this video, ' +
+      'ytInitialPlayerResponse not yet available, or an unsupported page state. ' +
+      'BabelTube will not act on this page.'
+    );
+    return;
   }
 
-  // Subtitle selection
+  const target = settings.targetLanguage.toLowerCase();
+  log.info(`Detected language: "${detectedCode}" | Target language: "${target}"`);
+
+  if (detectedCode === target) {
+    log.info(`Video is already in the target language ("${target}"). Nothing to do.`);
+    return;
+  }
+
+  const detectedName = getLanguageName(detectedCode);
+  log.info(`Foreign-language video confirmed: "${detectedName}" (${detectedCode}) → translate to "${settings.targetLanguageName}" (${target}).`);
+
+  // ── Banner ────────────────────────────────────────────────────────────────
+  if (settings.showBanner) {
+    if (isBannerDismissedForVideo(videoId)) {
+      log.dim(`Banner already dismissed for video "${videoId}" this session. Skipping.`);
+    } else {
+      showBanner(detectedName);
+    }
+  } else {
+    log.dim('Banner is disabled in settings.');
+  }
+
+  // ── Subtitle selection ────────────────────────────────────────────────────
   if (settings.enableSubtitles) {
     const player = await waitForPlayer();
     if (player) {
       await selectBestSubtitleTrack(player);
+    } else {
+      log.error(
+        'Player element (#movie_player) never became ready with setOption. ' +
+        'Subtitle selection skipped. This may happen if the player is slow to load or ' +
+        'if YouTube changed their player structure.'
+      );
     }
+  } else {
+    log.dim('Subtitle auto-selection is disabled in settings.');
   }
+
+  log.info('▶ handleNavigation() complete.');
 }
 
 // ─── Entry points ─────────────────────────────────────────────────────────────
+
+log.info('Content script loaded. Watching for YouTube watch pages...');
 
 // Initial page load
 handleNavigation();
 
 // YouTube SPA navigation — fires on every video change
 document.addEventListener('yt-navigate-finish', () => {
-  removeBanner(); // clear any leftover banner from the previous video
+  log.dim('yt-navigate-finish event received. Re-running...');
+  removeBanner();
   handleNavigation();
 });
