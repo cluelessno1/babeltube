@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BabelTube</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 300px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+      background: #0f0f1a;
+      color: #e8e8e8;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      padding: 14px 16px 12px;
+      border-bottom: 2px solid #ff4444;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-icon { font-size: 22px; }
+    .header-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .header-subtitle {
+      font-size: 10px;
+      color: #888;
+      margin-top: 1px;
+    }
+
+    /* ── Status card ── */
+    .status-card {
+      margin: 12px 12px 0;
+      background: #1a1a2e;
+      border-radius: 8px;
+      padding: 10px 12px;
+      border: 1px solid #2a2a4e;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .status-label { color: #aaa; font-size: 11px; }
+    .status-value {
+      font-weight: 600;
+      font-size: 12px;
+      color: #fff;
+      background: #2a2a4e;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .status-value.detected { color: #ffcc44; }
+    .status-value.ok       { color: #44cc88; }
+    .status-value.na       { color: #888; }
+    .status-divider {
+      border: none;
+      border-top: 1px solid #2a2a4e;
+      margin: 8px 0;
+    }
+
+    /* ── Toggles ── */
+    .toggle-section {
+      padding: 10px 12px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+    }
+    .toggle-label { color: #ccc; font-size: 12px; }
+
+    /* iOS-style toggle */
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: #ff4444; }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+    /* ── Footer ── */
+    .footer {
+      padding: 10px 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .settings-link {
+      color: #ff4444;
+      text-decoration: none;
+      font-size: 11px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .settings-link:hover { text-decoration: underline; }
+    .version { color: #444; font-size: 10px; }
+
+    /* ── Not-on-YouTube notice ── */
+    .notice {
+      margin: 12px;
+      padding: 10px 12px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      border: 1px solid #2a2a4e;
+      color: #888;
+      font-size: 12px;
+      line-height: 1.5;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <span class="header-icon" aria-hidden="true">🗼</span>
+    <div>
+      <div class="header-title">BabelTube</div>
+      <div class="header-subtitle">Auto subtitle &amp; translate</div>
+    </div>
+  </div>
+
+  <!-- Shown only when on a YouTube watch page -->
+  <div id="watch-view" style="display:none">
+    <div class="status-card">
+      <div class="status-row">
+        <span class="status-label">Video language</span>
+        <span id="lang-detected" class="status-value na">—</span>
+      </div>
+      <hr class="status-divider" />
+      <div class="status-row">
+        <span class="status-label">Target language</span>
+        <span id="lang-target" class="status-value ok">English</span>
+      </div>
+      <hr class="status-divider" />
+      <div class="status-row">
+        <span class="status-label">Subtitles</span>
+        <span id="subtitle-status" class="status-value na">—</span>
+      </div>
+    </div>
+
+    <div class="toggle-section">
+      <div class="toggle-row">
+        <span class="toggle-label">Show translation banner</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-banner" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Auto-select subtitles</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-subtitles" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Auto-translate fallback</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-autotranslate" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shown when not on a YouTube watch page -->
+  <div id="no-watch-view" class="notice">
+    Navigate to a YouTube video to see BabelTube in action.
+  </div>
+
+  <div class="footer">
+    <button class="settings-link" id="open-settings">⚙ Full settings</button>
+    <span class="version">v1.0.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
