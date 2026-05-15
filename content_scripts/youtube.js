@@ -279,6 +279,18 @@ function selectSubtitleTrack(captionTracks) {
   log.dim('Track payload:', JSON.stringify(chosen));
 
   // Dispatch to MAIN world via DOM — page-reader.js will call player.setOption()
+  // #region agent log
+  fetch('http://127.0.0.1:7537/ingest/9467374b-82f9-495a-8d7f-15e13322551a', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c97cd0' },
+    body: JSON.stringify({
+      sessionId: 'c97cd0', hypothesisId: 'A', location: 'youtube.js:selectSubtitleTrack',
+      message: 'dispatching select-track (one-shot per page-data)',
+      data: { videoId: getVideoId(), trackLang: chosen.languageCode, reason },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   document.dispatchEvent(new CustomEvent(SELECT_EVENT, { detail: { track: chosen } }));
   log.groupEnd();
 }

@@ -230,6 +230,40 @@ const SELECT_EVENT   = 'babeltube:select-track';
 const PLAYER_POLL_MS = 200;
 const PLAYER_TIMEOUT = 15000;
 
+// #region agent log
+const DBG_INGEST = 'http://127.0.0.1:7537/ingest/9467374b-82f9-495a-8d7f-15e13322551a';
+function dbgLog(hypothesisId, location, message, data = {}) {
+  fetch(DBG_INGEST, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c97cd0' },
+    body: JSON.stringify({
+      sessionId: 'c97cd0', hypothesisId, location, message, data, timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+}
+// #endregion
+
+/** Cached track for re-apply after YouTube ad → content transition */
+let cachedTrack = null;
+let cachedVideoId = null;
+let adMonitorAttachedFor = null;
+let reapplyDebounceTimer = null;
+
+function isAdPlaying() {
+  const p = document.querySelector('#movie_player');
+  if (!p) return false;
+  return (
+    p.classList.contains('ad-showing') ||
+    p.classList.contains('ytp-ad-overlay-open') ||
+    !!document.querySelector('.ytp-ad-player-overlay, .ytp-ad-module')
+  );
+}
+
+function getPlayerStateLabel(state) {
+  const labels = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
+  return labels[state] ?? `unknown(${state})`;
+}
+
 function waitForPlayerMain() {
   return new Promise((resolve) => {
     const start = Date.now();
@@ -255,6 +289,106 @@ function waitForPlayerMain() {
   });
 }
 
+async function applyTrack(track, reason) {
+  const player = await waitForPlayerMain();
+  if (!player) return false;
+
+  const adDuringApply = isAdPlaying();
+  // #region agent log
+  dbgLog('B', 'page-reader.js:applyTrack', 'setOption attempt', {
+    reason, adDuringApply, videoId: cachedVideoId,
+    trackLang: track.languageCode,
+  });
+  // #endregion
+
+  rlog.info(`Applying track (${reason}), adPlaying=${adDuringApply}`);
+  try {
+    player.setOption('captions', 'track', track);
+    rlog.info('player.setOption called successfully.');
+    // #region agent log
+    dbgLog('D', 'page-reader.js:applyTrack', 'setOption success', { reason, adDuringApply });
+    // #endregion
+    return true;
+  } catch (err) {
+    rlog.error('player.setOption threw an error:', err);
+    // #region agent log
+    dbgLog('D', 'page-reader.js:applyTrack', 'setOption error', { reason, error: String(err) });
+    // #endregion
+    return false;
+  }
+}
+
+function scheduleReapply(reason) {
+  if (!cachedTrack || !cachedVideoId) return;
+  if (currentVideoId() !== cachedVideoId) return;
+
+  clearTimeout(reapplyDebounceTimer);
+  reapplyDebounceTimer = setTimeout(async () => {
+    if (isAdPlaying()) {
+      // #region agent log
+      dbgLog('E', 'page-reader.js:scheduleReapply', 'skipped — still in ad', { reason });
+      // #endregion
+      return;
+    }
+    // #region agent log
+    dbgLog('A', 'page-reader.js:scheduleReapply', 're-applying cached track', {
+      reason, videoId: cachedVideoId,
+    });
+    // #endregion
+    rlog.info(`Re-applying subtitles after ad transition (${reason}).`);
+    await applyTrack(cachedTrack, `reapply:${reason}`);
+  }, 400);
+}
+
+function attachAdMonitor(videoId) {
+  if (adMonitorAttachedFor === videoId) return;
+
+  const tryAttach = () => {
+    const player = document.querySelector('#movie_player');
+    if (!player) {
+      setTimeout(tryAttach, 500);
+      return;
+    }
+
+    adMonitorAttachedFor = videoId;
+
+    // Hypothesis C/E: player state changes after ad skip
+    if (typeof player.addEventListener === 'function') {
+      player.addEventListener('onStateChange', (state) => {
+        const label = getPlayerStateLabel(state);
+        const ad = isAdPlaying();
+        // #region agent log
+        dbgLog('C', 'page-reader.js:onStateChange', 'player state', {
+          state, label, ad, videoId,
+        });
+        // #endregion
+        if (state === 1 && !ad && cachedTrack) {
+          scheduleReapply(`onStateChange:${label}`);
+        }
+      });
+    }
+
+    // Hypothesis B: ad-showing class removed when content resumes
+    const obs = new MutationObserver(() => {
+      const ad = isAdPlaying();
+      // #region agent log
+      dbgLog('B', 'page-reader.js:mutation', 'player class changed', {
+        ad, classes: player.className?.slice(0, 120),
+      });
+      // #endregion
+      if (!ad && cachedTrack) scheduleReapply('ad-class-removed');
+    });
+    obs.observe(player, { attributes: true, attributeFilter: ['class'] });
+
+    rlog.dim(`Ad monitor attached for video "${videoId}".`);
+    // #region agent log
+    dbgLog('A', 'page-reader.js:attachAdMonitor', 'monitor attached', { videoId });
+    // #endregion
+  };
+
+  tryAttach();
+}
+
 document.addEventListener(SELECT_EVENT, async (e) => {
   const { track } = e.detail ?? {};
   rlog.info('Received babeltube:select-track. Track:', JSON.stringify(track));
@@ -264,16 +398,19 @@ document.addEventListener(SELECT_EVENT, async (e) => {
     return;
   }
 
-  const player = await waitForPlayerMain();
-  if (!player) return; // already logged inside waitForPlayerMain
+  const vid = currentVideoId();
+  cachedTrack = track;
+  cachedVideoId = vid;
+  adMonitorAttachedFor = null; // re-attach listeners for this navigation
 
-  rlog.info('Calling player.setOption("captions","track", ...)');
-  try {
-    player.setOption('captions', 'track', track);
-    rlog.info('player.setOption called successfully.');
-  } catch (err) {
-    rlog.error('player.setOption threw an error:', err);
-  }
+  // #region agent log
+  dbgLog('A', 'page-reader.js:select-track', 'track cached', {
+    videoId: vid, trackLang: track.languageCode, hasTranslation: !!track.translationLanguage,
+  });
+  // #endregion
+
+  const ok = await applyTrack(track, 'initial');
+  if (ok && vid) attachAdMonitor(vid);
 });
 
 // ─── Entry points ─────────────────────────────────────────────────────────────
@@ -293,5 +430,8 @@ if (initVideoId) {
 document.addEventListener('yt-navigate-finish', () => {
   const vid = currentVideoId();
   rlog.info(`yt-navigate-finish — new video ID: "${vid ?? 'none'}"`);
+  cachedTrack = null;
+  cachedVideoId = null;
+  adMonitorAttachedFor = null;
   if (vid) pollAndDispatch(vid);
 });
