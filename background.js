@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
   bannerDismissDuration: 10, // seconds; 0 = never auto-dismiss
   enableSubtitles: true,
   enableAutoTranslateFallback: true,
+  debugMode: false,           // when true, [BabelTube] logs appear in DevTools console
 };
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {

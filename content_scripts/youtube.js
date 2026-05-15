@@ -18,19 +18,25 @@
 'use strict';
 
 // ─── Debug logger ─────────────────────────────────────────────────────────────
+// All log calls are gated on the DEBUG flag (except errors, which are always shown).
+// Toggle debug mode via BabelTube Settings → "Debug mode".
+// The flag is also written to document.documentElement.dataset.babeltubeDebug
+// so that page-reader.js (MAIN world) can read it without chrome.storage access.
 
-const LOG_PREFIX  = '%c[BabelTube]';
-const LOG_STYLE   = 'color:#ff4444;font-weight:bold';
-const LOG_DIM     = 'color:#888;font-weight:normal';
+let DEBUG = false;
+
+const LP  = '%c[BabelTube]';
+const LS  = 'color:#ff4444;font-weight:bold';
+const LD  = 'color:#888;font-weight:normal';
 
 const log = {
-  info:     (...a) => console.log(LOG_PREFIX, LOG_STYLE, ...a),
-  warn:     (...a) => console.warn(LOG_PREFIX, LOG_STYLE, ...a),
-  error:    (...a) => console.error(LOG_PREFIX, LOG_STYLE, ...a),
-  dim:      (...a) => console.log(LOG_PREFIX, LOG_DIM, ...a),
-  group:    (l)   => console.groupCollapsed(`[BabelTube] ${l}`),
-  groupEnd: ()    => console.groupEnd(),
-  table:    (d)   => { console.log(LOG_PREFIX, LOG_STYLE, 'Table:'); console.table(d); },
+  info:     (...a) => DEBUG && console.log(LP, LS, ...a),
+  warn:     (...a) => DEBUG && console.warn(LP, LS, ...a),
+  error:    (...a) => console.error(LP, LS, ...a),          // always visible
+  dim:      (...a) => DEBUG && console.log(LP, LD, ...a),
+  group:    (l)   => DEBUG && console.groupCollapsed(`[BabelTube] ${l}`),
+  groupEnd: ()    => DEBUG && console.groupEnd(),
+  table:    (d)   => DEBUG && (console.log(LP, LS, 'Table:'), console.table(d)),
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -55,6 +61,12 @@ function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(null, (items) => {
       settings = { ...settings, ...items };
+
+      // Sync DEBUG flag and expose it on the DOM so page-reader.js can read it
+      DEBUG = !!settings.debugMode;
+      document.documentElement.dataset.babeltubeDebug = DEBUG ? '1' : '0';
+
+      log.dim('Debug mode: ON');
       log.dim('Settings:', JSON.stringify(settings));
       resolve();
     });
@@ -377,7 +389,9 @@ async function handlePageData(pageData) {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-log.info('Isolated-world script loaded. Listening for babeltube:page-data events...');
+// Always log startup — lets user confirm the extension is active even with debug off
+console.log('%c[BabelTube]', 'color:#ff4444;font-weight:bold',
+  'Loaded. Enable "Debug mode" in BabelTube Settings (⚙) to see detailed logs.');
 
 document.addEventListener(BT_EVENT, (e) => {
   removeBanner(); // clear any banner from the previous video

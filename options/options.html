@@ -118,6 +118,15 @@
     }
     select:focus { outline: 2px solid #ff4444; outline-offset: 2px; }
 
+    code {
+      font-family: 'Consolas', 'Courier New', monospace;
+      background: #0a0a18;
+      color: #ff8844;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+
     /* ── Save feedback ── */
     #save-status {
       position: fixed;
@@ -206,6 +215,26 @@
       </div>
       <label class="toggle">
         <input type="checkbox" id="enable-auto-translate" />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Developer -->
+  <div class="section">
+    <div class="section-title">Developer</div>
+    <div class="setting-row">
+      <div class="setting-info">
+        <div class="setting-label">Debug mode</div>
+        <div class="setting-desc">
+          Print detailed <code>[BabelTube]</code> logs to the Chrome DevTools console
+          (F12 → Console on a YouTube watch page). Filter by "BabelTube" to isolate them.
+          <br>Also enables logs in <code>[BabelTube:reader]</code> (page-reader script).
+          <br><strong>Leave off in normal use — it adds noise to the console.</strong>
+        </div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="debug-mode" />
         <span class="toggle-slider"></span>
       </label>
     </div>

@@ -188,6 +188,12 @@ async function init() {
     'change',
     (e) => save({ enableAutoTranslateFallback: e.target.checked })
   );
+
+  // Debug mode
+  document.getElementById('debug-mode').checked = !!settings.debugMode;
+  document.getElementById('debug-mode').addEventListener('change', (e) =>
+    save({ debugMode: e.target.checked })
+  );
 }
 
 init();
