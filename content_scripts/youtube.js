@@ -62,21 +62,56 @@ async function loadSettings() {
   });
 }
 
+// ─── Wait for ytInitialPlayerResponse ────────────────────────────────────────
+
+/**
+ * Polls until window.ytInitialPlayerResponse is populated AND its videoId
+ * matches the expected video. This is necessary because yt-navigate-finish
+ * fires BEFORE YouTube writes the new page's player data.
+ *
+ * Returns the player response object, or null on timeout.
+ */
+function waitForPlayerResponse(videoId) {
+  const TIMEOUT_MS   = 10000;
+  const POLL_INTERVAL_MS = 150;
+  const start = Date.now();
+
+  return new Promise((resolve) => {
+    const poll = () => {
+      const ipr = window.ytInitialPlayerResponse;
+      if (ipr && ipr.videoDetails?.videoId === videoId) {
+        log.dim(`ytInitialPlayerResponse ready for "${videoId}" after ${Date.now() - start}ms.`);
+        resolve(ipr);
+        return;
+      }
+      const elapsed = Date.now() - start;
+      if (elapsed > TIMEOUT_MS) {
+        log.warn(
+          `Timed out (${TIMEOUT_MS}ms) waiting for ytInitialPlayerResponse for video "${videoId}". ` +
+          `Current ytInitialPlayerResponse videoId: "${window.ytInitialPlayerResponse?.videoDetails?.videoId ?? 'none'}".`
+        );
+        resolve(null);
+        return;
+      }
+      setTimeout(poll, POLL_INTERVAL_MS);
+    };
+    poll();
+  });
+}
+
 // ─── Language detection ───────────────────────────────────────────────────────
 
 /**
- * Returns the detected audio language code for the current video, or null if
- * it cannot be determined.
+ * Returns the detected audio language code for the current video, or null.
+ * Receives the already-resolved ytInitialPlayerResponse object.
  *
- * YouTube exposes ytInitialPlayerResponse as a global. We look in two places:
+ * We look in two places:
  *  1. captions.playerCaptionsTracklistRenderer.audioTracks (multi-audio videos)
  *  2. The first captionTrack's languageCode as a proxy for the audio language
  */
-function detectVideoLanguage() {
-  const ipr = window.ytInitialPlayerResponse;
-
+function detectVideoLanguage(ipr) {
   if (!ipr) {
-    log.warn('ytInitialPlayerResponse is not available on this page yet.');
+    log.warn('detectVideoLanguage called with null ipr.');
     return null;
   }
 
@@ -131,14 +166,11 @@ function detectVideoLanguage() {
 }
 
 /**
- * Returns all available caption tracks from ytInitialPlayerResponse.
+ * Returns all available caption tracks from a ytInitialPlayerResponse object.
  */
-function getCaptionTracks() {
+function getCaptionTracks(ipr) {
   try {
-    const tracks =
-      window.ytInitialPlayerResponse?.captions
-        ?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-    return tracks;
+    return ipr?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   } catch {
     return [];
   }
@@ -283,8 +315,8 @@ function waitForPlayer() {
  *  3. Any non-target track + auto-translate (last resort)
  *  4. Give up — no usable tracks
  */
-async function selectBestSubtitleTrack(player) {
-  const tracks = getCaptionTracks();
+async function selectBestSubtitleTrack(player, ipr) {
+  const tracks = getCaptionTracks(ipr);
   const target = settings.targetLanguage.toLowerCase();
 
   log.group('Subtitle track selection');
@@ -391,17 +423,29 @@ async function handleNavigation() {
 
   log.info(`▶ Navigation detected. URL: ${url} | Video ID: ${videoId}`);
 
-  await loadSettings();
+  // Load settings and wait for YouTube to populate ytInitialPlayerResponse
+  // for THIS video in parallel — both are async and independent.
+  const [, ipr] = await Promise.all([
+    loadSettings(),
+    waitForPlayerResponse(videoId),
+  ]);
+
+  if (!ipr) {
+    log.warn(
+      'ytInitialPlayerResponse never became available for this video. ' +
+      'BabelTube will not act on this page.'
+    );
+    return;
+  }
 
   // ── Language detection ────────────────────────────────────────────────────
-  const detectedCode = detectVideoLanguage();
+  const detectedCode = detectVideoLanguage(ipr);
 
   if (!detectedCode) {
     log.warn(
       'Language detection returned null. ' +
-      'Possible reasons: no caption tracks on this video, ' +
-      'ytInitialPlayerResponse not yet available, or an unsupported page state. ' +
-      'BabelTube will not act on this page.'
+      'This video likely has no caption tracks (e.g. hardcoded/burned-in subtitles). ' +
+      'BabelTube cannot detect the language and will not act on this page.'
     );
     return;
   }
@@ -432,7 +476,7 @@ async function handleNavigation() {
   if (settings.enableSubtitles) {
     const player = await waitForPlayer();
     if (player) {
-      await selectBestSubtitleTrack(player);
+      await selectBestSubtitleTrack(player, ipr);
     } else {
       log.error(
         'Player element (#movie_player) never became ready with setOption. ' +
