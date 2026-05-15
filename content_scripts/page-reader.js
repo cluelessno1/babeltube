@@ -250,6 +250,8 @@ let adEdgePollerId = null;
 let lastAdPlaying = null;
 let skipListenerAttached = false;
 let pipelineRunning = false;
+/** After user skips an ad, ignore stale ad DOM for this long (runtime: isAdPlaying stayed true). */
+let forceContentApplyUntil = 0;
 
 /** Always visible — critical ad/subtitle pipeline steps (not gated on debug mode). */
 function pipelineLog(message, data) {
@@ -263,22 +265,67 @@ function pipelineLog(message, data) {
   // #endregion
 }
 
+function isElementVisible(el) {
+  if (!el) return false;
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 1 && rect.height < 1) return false;
+  const style = getComputedStyle(el);
+  return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0.01;
+}
+
 /**
- * Detect whether a YouTube ad is currently interrupting playback.
- * Runtime evidence: initial setOption ran with adPlaying=true and did not
- * persist after skip — we must not treat "apply during ad" as success.
+ * Returns which ad signals are active (for debug). Runtime evidence: broad selectors
+ * (.ytp-ad-module, hidden skip button) kept isAdPlaying=true after skip.
  */
-function isAdPlaying() {
+function getAdSignals() {
   const p = document.querySelector('#movie_player');
-  if (!p) return false;
-  if (p.classList.contains('ad-showing')) return true;
-  if (p.classList.contains('ytp-ad-interrupting')) return true;
-  if (p.classList.contains('ytp-ad-overlay-open')) return true;
-  if (document.querySelector('.ytp-ad-player-overlay, .ytp-ad-module')) return true;
-  if (document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button')) {
-    return true;
+  const skip = document.querySelector(
+    '.ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button'
+  );
+  const overlay = document.querySelector('.ytp-ad-player-overlay');
+  const adText = document.querySelector('.ytp-ad-text, .ytp-ad-preview-text, .ytp-ad-duration-remaining');
+
+  return {
+    adShowing: !!p?.classList.contains('ad-showing'),
+    adInterrupting: !!p?.classList.contains('ytp-ad-interrupting'),
+    visibleSkip: isElementVisible(skip),
+    visibleOverlay: isElementVisible(overlay),
+    visibleAdText: isElementVisible(adText),
+    forceContent: Date.now() < forceContentApplyUntil,
+  };
+}
+
+function isAdPlaying() {
+  if (Date.now() < forceContentApplyUntil) return false;
+
+  const s = getAdSignals();
+  const playing =
+    s.adShowing ||
+    s.adInterrupting ||
+    s.visibleSkip ||
+    s.visibleOverlay ||
+    s.visibleAdText;
+
+  if (playing) {
+    pipelineLog('isAdPlaying=true', s);
+    // #region agent log
+    dbgLog('G', 'page-reader.js:isAdPlaying', 'ad signals active', s);
+    // #endregion
   }
-  return false;
+
+  return playing;
+}
+
+function markAdSkippedByUser() {
+  forceContentApplyUntil = Date.now() + 12000;
+  pipelineLog('User skipped ad — treating as main content for 12s', {
+    until: forceContentApplyUntil,
+  });
+  // #region agent log
+  dbgLog('G', 'page-reader.js:markAdSkippedByUser', 'force content window', {
+    until: forceContentApplyUntil,
+  });
+  // #endregion
 }
 
 function stopAdEdgePoller() {
@@ -317,20 +364,25 @@ function startAdEdgePoller() {
 }
 
 /** Re-apply with staggered delays so the main-content player can finish initializing. */
-async function applyAfterAdTransition() {
+async function applyAfterAdTransition({ force = false } = {}) {
   if (!cachedTrack) return;
-  const delaysMs = [400, 1000, 2000];
+  const delaysMs = [300, 800, 1500];
   for (let i = 0; i < delaysMs.length; i++) {
     await new Promise((r) => setTimeout(r, delaysMs[i]));
-    if (isAdPlaying()) {
-      rlog.dim(`Re-apply attempt ${i} skipped — ad still playing.`);
+    if (!force && isAdPlaying()) {
+      pipelineLog(`Re-apply attempt ${i} skipped — isAdPlaying still true`, getAdSignals());
       return;
     }
-    const ok = await applyTrack(cachedTrack, `after-ad-${i}`);
+    const ok = await applyTrack(cachedTrack, force ? `after-skip-${i}` : `after-ad-${i}`);
     // #region agent log
-    dbgLog('A', 'page-reader.js:applyAfterAdTransition', `attempt ${i}`, { ok, ad: isAdPlaying() });
+    dbgLog('A', 'page-reader.js:applyAfterAdTransition', `attempt ${i}`, {
+      ok, force, signals: getAdSignals(),
+    });
     // #endregion
-    if (ok) rlog.info(`Subtitles applied after ad (attempt ${i}).`);
+    if (ok) {
+      pipelineLog(`Subtitles applied (attempt ${i}, force=${force})`);
+      return;
+    }
   }
 }
 
@@ -338,11 +390,13 @@ async function applyAfterAdTransition() {
 async function waitUntilNoAd(maxMs = 45000) {
   const start = Date.now();
   pipelineLog('Waiting for ad to finish...');
-  while (isAdPlaying() && Date.now() - start < maxMs) {
+  while (Date.now() - start < maxMs) {
+    if (Date.now() < forceContentApplyUntil) break;
+    if (!isAdPlaying()) break;
     await new Promise((r) => setTimeout(r, 250));
   }
   const stillAd = isAdPlaying();
-  pipelineLog('Ad wait finished', { stillAd, waitedMs: Date.now() - start });
+  pipelineLog('Ad wait finished', { stillAd, waitedMs: Date.now() - start, signals: getAdSignals() });
   // #region agent log
   dbgLog('B', 'page-reader.js:waitUntilNoAd', 'wait finished', {
     stillAd, waitedMs: Date.now() - start,
@@ -361,8 +415,9 @@ function attachSkipAdListener() {
         '.ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button, .ytp-ad-skip-button-container'
       );
       if (!el || !cachedTrack) return;
-      pipelineLog('Skip-ad button clicked — re-applying subtitles');
-      void applyAfterAdTransition();
+      markAdSkippedByUser();
+      pipelineLog('Skip-ad button clicked — force-applying subtitles');
+      void applyAfterAdTransition({ force: true });
     },
     true
   );
@@ -450,14 +505,16 @@ async function applyTrack(track, reason) {
   const player = await waitForPlayerMain();
   if (!player) return false;
 
+  const signals = getAdSignals();
   const adDuringApply = isAdPlaying();
   // #region agent log
   dbgLog('B', 'page-reader.js:applyTrack', 'setOption attempt', {
     reason, adDuringApply, videoId: cachedVideoId,
-    trackLang: track.languageCode,
+    trackLang: track.languageCode, signals,
   });
   // #endregion
 
+  pipelineLog(`Applying track (${reason})`, { adDuringApply, signals });
   rlog.info(`Applying track (${reason}), adPlaying=${adDuringApply}`);
   try {
     player.setOption('captions', 'track', track);
@@ -518,6 +575,7 @@ document.addEventListener('yt-navigate-finish', () => {
   rlog.info(`yt-navigate-finish — new video ID: "${vid ?? 'none'}"`);
   cachedTrack = null;
   cachedVideoId = null;
+  forceContentApplyUntil = 0;
   stopAdEdgePoller();
   if (vid) pollAndDispatch(vid);
 });
