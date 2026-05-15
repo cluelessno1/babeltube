@@ -51,6 +51,7 @@ async function getVideoInfo(tabId) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
+      world: 'MAIN', // ytInitialPlayerResponse exists only in the page world
       func: () => {
         const ipr = window.ytInitialPlayerResponse;
         if (!ipr) return null;

@@ -128,6 +128,8 @@ BabelTube uses two content scripts to work around Chrome's extension isolation:
 │  • Cannot use: window.ytInitialPlayerResponse (page JS vars)    │
 │  • Role: reads settings, shows banner, selects subtitle tracks  │
 └─────────────────────────────────────────────────────────────────┘
+
+The toolbar **popup** reads `ytInitialPlayerResponse` via `chrome.scripting.executeScript` with `world: 'MAIN'` (same reason as `page-reader.js`).
 ```
 
 ### Common issues
@@ -139,6 +141,7 @@ BabelTube uses two content scripts to work around Chrome's extension isolation:
 | `Player not ready after 15000ms` | YouTube changed `#movie_player` | Inspect the player DOM for a new selector |
 | Banner shows but subtitles don't switch | `setOption` API changed | Log the track object and test manually: `document.querySelector('#movie_player').setOption('captions','track',{...})` |
 | Debug logs not appearing | Debug mode is off | Enable in Settings → Developer → Debug mode |
+| Popup shows Unknown / No captions on a working video | Popup script ran in isolated world (fixed in v1.0.1+) | Reload extension; popup must use MAIN-world inject |
 
 ---
 

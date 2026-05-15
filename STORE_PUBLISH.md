@@ -102,6 +102,16 @@ Re-run the script after any change you intend to ship.
 
 **Rejected?** Read the email/dashboard note, fix the cited issue, bump version if you already uploaded that build, and resubmit.
 
+### Updating while a version is already in review
+
+| Situation | What to do |
+|-----------|------------|
+| **Status: Pending review** (first submit) | You usually **cannot** replace the uploaded ZIP until review finishes. Options: wait for approval/rejection, or use **Cancel review** / **Recall submission** in the dashboard if available, then upload the new ZIP and submit again. |
+| **Approved and live** | Upload new ZIP with a **higher** `version` in `manifest.json` → **Submit for review** (treated as an update). |
+| **Rejected** | Fix the issue, bump `version`, upload new ZIP, resubmit. |
+
+Do not upload a lower or duplicate version number. For a popup-only fix after `1.0.0` was submitted, use **`1.0.1`** (already set in `manifest.json`).
+
 ---
 
 ## First-time publish
