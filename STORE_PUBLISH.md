@@ -42,19 +42,99 @@ Upload **`babeltube-store.zip`** (not the repo folder).
 | **Category** | Productivity or Accessibility |
 | **Language** | English |
 
-**Detailed description** — see README “Store listing template” or plan.
+**Detailed description** (paste):
+
+```
+BabelTube detects when a YouTube video is in a language you don't understand and automatically selects the best subtitles — human-made if available, or auto-generated with translation as a fallback. It also shows a banner reminding you to use Chrome's built-in right-click page translation.
+
+No API keys. No subscriptions. Works entirely with YouTube's own data.
+
+Features:
+• Automatic subtitle selection in your target language
+• Auto-translate fallback using YouTube's built-in caption translation
+• Optional translation reminder banner
+• 100+ target languages
+• Settings sync across your Chrome devices
+
+Note: BabelTube works on YouTube watch pages. YouTube Shorts are not supported in v1.
+```
 
 **Icons** — use `icons/icon128.png` for the store; 16/48 are in the ZIP.
 
-**Screenshots** — see `store/SCREENSHOTS.md`.
+**Screenshots** — upload `store/screenshot-1.png`, `screenshot-2.png`, etc. (see `store/SCREENSHOTS.md` to resize captures).
 
-## 5. Privacy practices (dashboard)
+**Optional URLs**
 
-- **Single purpose:** Help users watch foreign-language YouTube videos with automatic subtitles and translation guidance.
-- **Remote collection:** No.
-- **storage:** User preferences stored locally / Chrome sync.
-- **Host (youtube.com):** Required only on watch pages to detect language and set caption tracks.
-- **scripting:** Used only when the user opens the popup on a watch page to read caption metadata.
+| Field | Value |
+|-------|--------|
+| Homepage URL | `https://github.com/cluelessno1/babeltube` |
+| Support URL | `https://github.com/cluelessno1/babeltube/issues` |
+
+**Publisher account (EEA):** Non-trader (personal / hobby, free extension).
+
+## 5. Privacy tab (dashboard)
+
+Open the **Privacy** section of your listing. Paste the fields below.
+
+### Single purpose description
+
+```
+Help users watch foreign-language YouTube videos with automatic subtitles and translation guidance.
+```
+
+### Permission justification
+
+**storage**
+
+```
+Stores the user's BabelTube preferences (target language, banner on/off, subtitle toggles, debug mode) using chrome.storage.sync so settings persist and can sync across the user's signed-in Chrome profile. No data is sent to the developer's servers.
+```
+
+**activeTab**
+
+```
+Allows the extension to read information from the tab the user is viewing only when the user opens the BabelTube toolbar popup, so the popup can show whether the current page is a YouTube watch page and display video/caption status. The extension does not access other tabs in the background.
+```
+
+**scripting**
+
+```
+Used only when the user opens the popup on a YouTube watch page to read caption track metadata already available in the page (via a one-time script injection). This powers the popup status display. No remote code is loaded; only bundled extension scripts run.
+```
+
+**Host permission** (`*://*.youtube.com/*`)
+
+```
+Required to run content scripts only on YouTube watch pages (youtube.com/watch*) so BabelTube can read the video's language and available caption tracks from the page, select the appropriate subtitle track, and optionally show a translation reminder banner. The extension does not run on other sites and does not send page data to the developer's servers.
+```
+
+### Remote code
+
+Select: **No, I am not using Remote code** (leave justification empty).
+
+### Data usage (checkboxes)
+
+| Data type | Check? |
+|-----------|--------|
+| Website content | **Yes** — reads caption/language metadata on YouTube watch pages; processed locally only |
+| Personally identifiable information | No |
+| Health information | No |
+| Financial and payment information | No |
+| Authentication information | No |
+| Personal communications | No |
+| Location | No |
+| Web history | No |
+| User activity | No |
+
+Certify **all three** statements at the bottom (no selling data, no unrelated use, no credit/lending use).
+
+### Privacy policy URL
+
+```
+https://cluelessno1.github.io/babeltube/privacy.html
+```
+
+(Source file in repo: `docs/privacy.html`. Must match what you disclose above.)
 
 ## 6. Distribution
 
