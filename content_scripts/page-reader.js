@@ -221,6 +221,61 @@ function pollAndDispatch(expectedVideoId) {
   tick();
 }
 
+// ─── Subtitle selection (called from MAIN world) ─────────────────────────────
+// youtube.js cannot call player.setOption() because setOption is a method added
+// by YouTube's own JS and is invisible to isolated-world scripts.
+// Instead youtube.js dispatches 'babeltube:select-track'; we execute it here.
+
+const SELECT_EVENT   = 'babeltube:select-track';
+const PLAYER_POLL_MS = 200;
+const PLAYER_TIMEOUT = 15000;
+
+function waitForPlayerMain() {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const poll = () => {
+      const p = document.querySelector('#movie_player');
+      if (p && typeof p.setOption === 'function') {
+        rlog.dim(`#movie_player.setOption ready after ${Date.now() - start}ms.`);
+        resolve(p);
+        return;
+      }
+      if (Date.now() - start > PLAYER_TIMEOUT) {
+        rlog.error(
+          `#movie_player never exposed setOption after ${PLAYER_TIMEOUT}ms. ` +
+          `#movie_player in DOM: ${!!p}, typeof setOption: ${typeof p?.setOption}. ` +
+          `YouTube may have changed their player structure.`
+        );
+        resolve(null);
+        return;
+      }
+      setTimeout(poll, PLAYER_POLL_MS);
+    };
+    poll();
+  });
+}
+
+document.addEventListener(SELECT_EVENT, async (e) => {
+  const { track } = e.detail ?? {};
+  rlog.info('Received babeltube:select-track. Track:', JSON.stringify(track));
+
+  if (!track) {
+    rlog.warn('No track payload in select-track event — ignoring.');
+    return;
+  }
+
+  const player = await waitForPlayerMain();
+  if (!player) return; // already logged inside waitForPlayerMain
+
+  rlog.info('Calling player.setOption("captions","track", ...)');
+  try {
+    player.setOption('captions', 'track', track);
+    rlog.info('player.setOption called successfully.');
+  } catch (err) {
+    rlog.error('player.setOption threw an error:', err);
+  }
+});
+
 // ─── Entry points ─────────────────────────────────────────────────────────────
 
 rlog.info('page-reader.js loaded (MAIN world). YouTube globals are accessible.');

@@ -43,8 +43,6 @@ const log = {
 
 const BT_EVENT   = 'babeltube:page-data';
 const BANNER_ID  = 'babeltube-banner';
-const PLAYER_READY_POLL_MS    = 300;
-const PLAYER_READY_TIMEOUT_MS = 15000;
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -207,38 +205,18 @@ function showBanner(sourceLangName) {
   }
 }
 
-// ─── Player / subtitle selection ─────────────────────────────────────────────
+// ─── Subtitle selection ───────────────────────────────────────────────────────
+// NOTE: player.setOption() is a YouTube JS method visible only in MAIN world.
+// We cannot call it here (ISOLATED world). Instead we pick the best track and
+// dispatch 'babeltube:select-track'; page-reader.js executes the actual call.
 
-function waitForPlayer() {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    log.dim('Waiting for #movie_player.setOption...');
-    const poll = () => {
-      const p = document.querySelector('#movie_player');
-      if (p && typeof p.setOption === 'function') {
-        log.dim(`Player ready after ${Date.now() - start}ms.`);
-        resolve(p);
-        return;
-      }
-      if (Date.now() - start > PLAYER_READY_TIMEOUT_MS) {
-        log.warn(
-          `Player not ready after ${PLAYER_READY_TIMEOUT_MS}ms. ` +
-          `#movie_player exists: ${!!p}, setOption: ${typeof p?.setOption}`
-        );
-        resolve(null);
-        return;
-      }
-      setTimeout(poll, PLAYER_READY_POLL_MS);
-    };
-    poll();
-  });
-}
+const SELECT_EVENT = 'babeltube:select-track';
 
-async function selectSubtitleTrack(player, captionTracks) {
+function selectSubtitleTrack(captionTracks) {
   const target = settings.targetLanguage.toLowerCase();
 
   log.group('Subtitle selection');
-  log.info(`${captionTracks.length} track(s) available, target language: "${target}"`);
+  log.info(`${captionTracks.length} track(s) available, target: "${target}"`);
   log.table(captionTracks);
 
   if (!captionTracks.length) {
@@ -247,60 +225,61 @@ async function selectSubtitleTrack(player, captionTracks) {
     return;
   }
 
-  // 1. Human subtitle in target language
+  let chosen = null;
+  let reason = '';
+
+  // 1. Human subtitle in target language (best quality)
   const humanTarget = captionTracks.find(
     (t) => t.languageCode?.toLowerCase() === target && t.kind !== 'asr'
   );
   if (humanTarget) {
-    log.info(`✓ Human subtitle found for "${target}". Selecting it.`);
-    player.setOption('captions', 'track', {
-      languageCode: humanTarget.languageCode,
-      vssId: humanTarget.vssId,
-    });
-    log.groupEnd();
-    return;
-  }
-  log.dim(`No human subtitle in "${target}".`);
-
-  if (!settings.enableAutoTranslateFallback) {
-    log.dim('Auto-translate fallback disabled — stopping here.');
-    log.groupEnd();
-    return;
+    chosen = { languageCode: humanTarget.languageCode, vssId: humanTarget.vssId };
+    reason = `Human subtitle found for "${target}"`;
   }
 
-  // 2. ASR track + auto-translate
-  const asrTrack = captionTracks.find((t) => t.kind === 'asr');
-  if (asrTrack) {
-    log.info(`✓ ASR track found (lang="${asrTrack.languageCode}"). Enabling with auto-translate → "${target}".`);
-    player.setOption('captions', 'track', {
-      languageCode: asrTrack.languageCode,
-      vssId: asrTrack.vssId,
-      translationLanguage: {
-        languageName: settings.targetLanguageName || 'English',
-        languageCode: settings.targetLanguage,
-      },
-    });
-    log.groupEnd();
-    return;
+  // 2. ASR (auto-generated) track + auto-translate
+  if (!chosen && settings.enableAutoTranslateFallback) {
+    const asrTrack = captionTracks.find((t) => t.kind === 'asr');
+    if (asrTrack) {
+      chosen = {
+        languageCode: asrTrack.languageCode,
+        vssId: asrTrack.vssId,
+        translationLanguage: {
+          languageName: settings.targetLanguageName || 'English',
+          languageCode: settings.targetLanguage,
+        },
+      };
+      reason = `ASR track (lang="${asrTrack.languageCode}") + auto-translate → "${target}"`;
+    }
   }
 
   // 3. Any non-target track + auto-translate (last resort)
-  const anyOther = captionTracks.find((t) => t.languageCode?.toLowerCase() !== target);
-  if (anyOther) {
-    log.info(`✓ Last resort: using track (lang="${anyOther.languageCode}") with auto-translate → "${target}".`);
-    player.setOption('captions', 'track', {
-      languageCode: anyOther.languageCode,
-      vssId: anyOther.vssId,
-      translationLanguage: {
-        languageName: settings.targetLanguageName || 'English',
-        languageCode: settings.targetLanguage,
-      },
-    });
+  if (!chosen && settings.enableAutoTranslateFallback) {
+    const anyOther = captionTracks.find((t) => t.languageCode?.toLowerCase() !== target);
+    if (anyOther) {
+      chosen = {
+        languageCode: anyOther.languageCode,
+        vssId: anyOther.vssId,
+        translationLanguage: {
+          languageName: settings.targetLanguageName || 'English',
+          languageCode: settings.targetLanguage,
+        },
+      };
+      reason = `Last resort: track (lang="${anyOther.languageCode}") + auto-translate → "${target}"`;
+    }
+  }
+
+  if (!chosen) {
+    log.warn('No suitable track found. All tracks may already be in the target language.');
     log.groupEnd();
     return;
   }
 
-  log.warn('All tracks are already in the target language — nothing to auto-translate.');
+  log.info(`✓ ${reason}. Dispatching select-track to page-reader.js.`);
+  log.dim('Track payload:', JSON.stringify(chosen));
+
+  // Dispatch to MAIN world via DOM — page-reader.js will call player.setOption()
+  document.dispatchEvent(new CustomEvent(SELECT_EVENT, { detail: { track: chosen } }));
   log.groupEnd();
 }
 
@@ -371,15 +350,10 @@ async function handlePageData(pageData) {
 
   // ── Subtitles ───────────────────────────────────────────────────────────
   if (settings.enableSubtitles) {
-    const player = await waitForPlayer();
-    if (player) {
-      await selectSubtitleTrack(player, captionTracks);
-    } else {
-      log.error(
-        '#movie_player never exposed setOption. Subtitle selection skipped. ' +
-        'YouTube may have changed their player structure.'
-      );
-    }
+    // selectSubtitleTrack picks the best track and dispatches 'babeltube:select-track'.
+    // page-reader.js (MAIN world) receives it and calls player.setOption() there,
+    // because setOption is a YouTube JS method invisible to this isolated world.
+    selectSubtitleTrack(captionTracks);
   } else {
     log.dim('Subtitle selection disabled in settings.');
   }
