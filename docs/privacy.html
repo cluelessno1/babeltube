@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BabelTube Privacy Policy</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #1a1a1a; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    a { color: #1a73e8; }
+    .updated { color: #555; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>BabelTube Privacy Policy</h1>
+  <p class="updated">Last updated: May 15, 2026</p>
+
+  <p>
+    BabelTube is a Chrome extension that helps you watch foreign-language YouTube videos
+    by selecting subtitles and reminding you to use Chrome’s page translation.
+    This policy describes what data the extension uses and how it is handled.
+  </p>
+
+  <h2>Summary</h2>
+  <ul>
+    <li>We do <strong>not</strong> operate servers that collect your personal data.</li>
+    <li>We do <strong>not</strong> sell or share your data with third parties for advertising.</li>
+    <li>Settings are stored in <strong>Chrome sync storage</strong> on your devices (Google’s infrastructure).</li>
+    <li>The extension reads YouTube page data <strong>only on youtube.com/watch</strong> pages to detect language and set captions.</li>
+  </ul>
+
+  <h2>Data the extension accesses</h2>
+  <p>On YouTube watch pages, BabelTube reads information already present in the page, such as:</p>
+  <ul>
+    <li>Video language and available caption tracks (from YouTube’s player data)</li>
+    <li>Video identifier needed to match the current video</li>
+  </ul>
+  <p>This information is processed locally in your browser to choose subtitle tracks and show the optional translation banner. It is not sent to the extension developer’s servers.</p>
+
+  <h2>Data you provide (settings)</h2>
+  <p>Preferences you set in BabelTube (for example target language, banner toggles, debug mode) are saved using <code>chrome.storage.sync</code>. That storage is managed by Google Chrome and may sync across browsers where you are signed in to Chrome. We do not receive copies of these settings on our own servers.</p>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>storage</strong> — save your preferences locally / in Chrome sync.</li>
+    <li><strong>activeTab</strong> — read video information when you open the extension popup on the current tab.</li>
+    <li><strong>scripting</strong> — read caption metadata when you open the popup on a YouTube watch page.</li>
+    <li><strong>youtube.com</strong> — run only on YouTube watch pages to detect language and apply subtitle selection.</li>
+  </ul>
+
+  <h2>What we do not collect</h2>
+  <ul>
+    <li>No account registration with the extension developer</li>
+    <li>No analytics or tracking SDKs in the extension</li>
+    <li>No API keys or third-party cloud services for core functionality</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>BabelTube is not directed at children under 13. We do not knowingly collect personal information from children.</p>
+
+  <h2>Changes</h2>
+  <p>We may update this policy. The “Last updated” date at the top will change when we do. Continued use of the extension after changes means you accept the updated policy.</p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy:
+    <a href="https://github.com/cluelessno1/babeltube/issues">GitHub Issues</a>
+    (repository: cluelessno1/babeltube).
+  </p>
+</body>
+</html>

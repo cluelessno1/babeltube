@@ -157,11 +157,14 @@ youtube.js receives event
 
 ## Publishing to the Chrome Web Store
 
+See **[STORE_PUBLISH.md](STORE_PUBLISH.md)** for the full dashboard checklist (privacy practices answers, distribution, submit).
+
 ### Pre-publish checklist
 
-- [ ] Replace `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png` with properly-sized icons (not upscaled copies). The store requires: **16×16**, **48×48**, and **128×128** PNG files.
-- [ ] Prepare a **1280×800** or **640×400** promotional screenshot for the store listing.
-- [ ] Write a store description (see template below).
+- [x] Icons: run `python scripts/resize-icons.py` (requires `pip install pillow`) for **16×16**, **48×48**, **128×128** PNGs.
+- [ ] Host **[docs/privacy.html](docs/privacy.html)** at a public HTTPS URL (GitHub Pages, Google Sites, etc.).
+- [ ] Capture **1280×800** store screenshots — see [store/SCREENSHOTS.md](store/SCREENSHOTS.md).
+- [ ] Register a [Chrome Web Store developer account](https://chrome.google.com/webstore/devconsole) ($5 one-time).
 - [ ] Review [Chrome Web Store Program Policies](https://developer.chrome.com/docs/webstore/program-policies/).
 - [ ] Confirm **debug mode is OFF** before packaging (it's off by default).
 - [ ] Bump the version in `manifest.json` before each submission.
@@ -183,13 +186,19 @@ youtube.js receives event
 > • Supports 100+ target languages
 > • Settings sync across all your Chrome devices
 
+### Privacy policy
+
+Publish **[docs/privacy.html](docs/privacy.html)** at a public HTTPS URL. See **[docs/README.md](docs/README.md)** for GitHub Pages or Google Sites steps.
+
 ### Packaging
 
 ```powershell
-Compress-Archive -Path C:\Repos\babeltube\* -DestinationPath babeltube.zip
+.\scripts\package-store.ps1
 ```
 
-Then upload `babeltube.zip` at the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+Creates `babeltube-store.zip` (no `.git`, files at archive root). Test via **Load unpacked** using the staging folder path printed by the script.
+
+Upload `babeltube-store.zip` at the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 
 ---
 
@@ -198,6 +207,12 @@ Then upload `babeltube.zip` at the [Chrome Web Store Developer Dashboard](https:
 ```
 babeltube/
 ├── manifest.json                   # Extension manifest (MV3)
+├── STORE_PUBLISH.md                # Chrome Web Store submit checklist
+├── docs/privacy.html               # Privacy policy (host at public HTTPS URL)
+├── scripts/
+│   ├── package-store.ps1           # Build babeltube-store.zip
+│   └── resize-icons.py             # Regenerate 16/48/128 icons from icon128
+├── store/SCREENSHOTS.md            # Screenshot capture guide
 ├── background.js                   # Service worker — seeds default settings on install
 ├── content_scripts/
 │   ├── page-reader.js              # MAIN world — reads YouTube JS globals
