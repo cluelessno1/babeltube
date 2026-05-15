@@ -246,22 +246,93 @@ function dbgLog(hypothesisId, location, message, data = {}) {
 /** Cached track for re-apply after YouTube ad → content transition */
 let cachedTrack = null;
 let cachedVideoId = null;
-let adMonitorAttachedFor = null;
-let reapplyDebounceTimer = null;
+let adEdgePollerId = null;
+let lastAdPlaying = null;
 
+/**
+ * Detect whether a YouTube ad is currently interrupting playback.
+ * Runtime evidence: initial setOption ran with adPlaying=true and did not
+ * persist after skip — we must not treat "apply during ad" as success.
+ */
 function isAdPlaying() {
   const p = document.querySelector('#movie_player');
   if (!p) return false;
-  return (
-    p.classList.contains('ad-showing') ||
-    p.classList.contains('ytp-ad-overlay-open') ||
-    !!document.querySelector('.ytp-ad-player-overlay, .ytp-ad-module')
-  );
+  if (p.classList.contains('ad-showing')) return true;
+  if (p.classList.contains('ytp-ad-interrupting')) return true;
+  if (p.classList.contains('ytp-ad-overlay-open')) return true;
+  if (document.querySelector('.ytp-ad-player-overlay, .ytp-ad-module')) return true;
+  if (document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button')) {
+    return true;
+  }
+  return false;
 }
 
-function getPlayerStateLabel(state) {
-  const labels = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
-  return labels[state] ?? `unknown(${state})`;
+function stopAdEdgePoller() {
+  if (adEdgePollerId) clearInterval(adEdgePollerId);
+  adEdgePollerId = null;
+  lastAdPlaying = null;
+}
+
+/**
+ * Poll for ad → content transitions. Replaces onStateChange/MutationObserver
+ * (runtime evidence: those never logged after ad skip in Incognito).
+ */
+function startAdEdgePoller() {
+  if (adEdgePollerId) return;
+  lastAdPlaying = isAdPlaying();
+  rlog.dim(`Ad edge poller started (initial adPlaying=${lastAdPlaying}).`);
+
+  adEdgePollerId = setInterval(async () => {
+    if (!cachedTrack || !cachedVideoId) return;
+    if (currentVideoId() !== cachedVideoId) return;
+
+    const ad = isAdPlaying();
+
+    if (lastAdPlaying === true && ad === false) {
+      // #region agent log
+      dbgLog('A', 'page-reader.js:adEdgePoller', 'ad→content edge detected', {
+        videoId: cachedVideoId,
+      });
+      // #endregion
+      rlog.info('Ad ended — re-applying subtitles to main video (poller).');
+      await applyAfterAdTransition();
+    }
+
+    lastAdPlaying = ad;
+  }, 250);
+}
+
+/** Re-apply with staggered delays so the main-content player can finish initializing. */
+async function applyAfterAdTransition() {
+  if (!cachedTrack) return;
+  const delaysMs = [400, 1000, 2000];
+  for (let i = 0; i < delaysMs.length; i++) {
+    await new Promise((r) => setTimeout(r, delaysMs[i]));
+    if (isAdPlaying()) {
+      rlog.dim(`Re-apply attempt ${i} skipped — ad still playing.`);
+      return;
+    }
+    const ok = await applyTrack(cachedTrack, `after-ad-${i}`);
+    // #region agent log
+    dbgLog('A', 'page-reader.js:applyAfterAdTransition', `attempt ${i}`, { ok, ad: isAdPlaying() });
+    // #endregion
+    if (ok) rlog.info(`Subtitles applied after ad (attempt ${i}).`);
+  }
+}
+
+/** Wait until pre-roll / mid-roll ad finishes before first apply. */
+async function waitUntilNoAd(maxMs = 45000) {
+  const start = Date.now();
+  while (isAdPlaying() && Date.now() - start < maxMs) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const stillAd = isAdPlaying();
+  // #region agent log
+  dbgLog('B', 'page-reader.js:waitUntilNoAd', 'wait finished', {
+    stillAd, waitedMs: Date.now() - start,
+  });
+  // #endregion
+  return !stillAd;
 }
 
 function waitForPlayerMain() {
@@ -318,77 +389,6 @@ async function applyTrack(track, reason) {
   }
 }
 
-function scheduleReapply(reason) {
-  if (!cachedTrack || !cachedVideoId) return;
-  if (currentVideoId() !== cachedVideoId) return;
-
-  clearTimeout(reapplyDebounceTimer);
-  reapplyDebounceTimer = setTimeout(async () => {
-    if (isAdPlaying()) {
-      // #region agent log
-      dbgLog('E', 'page-reader.js:scheduleReapply', 'skipped — still in ad', { reason });
-      // #endregion
-      return;
-    }
-    // #region agent log
-    dbgLog('A', 'page-reader.js:scheduleReapply', 're-applying cached track', {
-      reason, videoId: cachedVideoId,
-    });
-    // #endregion
-    rlog.info(`Re-applying subtitles after ad transition (${reason}).`);
-    await applyTrack(cachedTrack, `reapply:${reason}`);
-  }, 400);
-}
-
-function attachAdMonitor(videoId) {
-  if (adMonitorAttachedFor === videoId) return;
-
-  const tryAttach = () => {
-    const player = document.querySelector('#movie_player');
-    if (!player) {
-      setTimeout(tryAttach, 500);
-      return;
-    }
-
-    adMonitorAttachedFor = videoId;
-
-    // Hypothesis C/E: player state changes after ad skip
-    if (typeof player.addEventListener === 'function') {
-      player.addEventListener('onStateChange', (state) => {
-        const label = getPlayerStateLabel(state);
-        const ad = isAdPlaying();
-        // #region agent log
-        dbgLog('C', 'page-reader.js:onStateChange', 'player state', {
-          state, label, ad, videoId,
-        });
-        // #endregion
-        if (state === 1 && !ad && cachedTrack) {
-          scheduleReapply(`onStateChange:${label}`);
-        }
-      });
-    }
-
-    // Hypothesis B: ad-showing class removed when content resumes
-    const obs = new MutationObserver(() => {
-      const ad = isAdPlaying();
-      // #region agent log
-      dbgLog('B', 'page-reader.js:mutation', 'player class changed', {
-        ad, classes: player.className?.slice(0, 120),
-      });
-      // #endregion
-      if (!ad && cachedTrack) scheduleReapply('ad-class-removed');
-    });
-    obs.observe(player, { attributes: true, attributeFilter: ['class'] });
-
-    rlog.dim(`Ad monitor attached for video "${videoId}".`);
-    // #region agent log
-    dbgLog('A', 'page-reader.js:attachAdMonitor', 'monitor attached', { videoId });
-    // #endregion
-  };
-
-  tryAttach();
-}
-
 document.addEventListener(SELECT_EVENT, async (e) => {
   const { track } = e.detail ?? {};
   rlog.info('Received babeltube:select-track. Track:', JSON.stringify(track));
@@ -401,7 +401,8 @@ document.addEventListener(SELECT_EVENT, async (e) => {
   const vid = currentVideoId();
   cachedTrack = track;
   cachedVideoId = vid;
-  adMonitorAttachedFor = null; // re-attach listeners for this navigation
+  stopAdEdgePoller();
+  startAdEdgePoller();
 
   // #region agent log
   dbgLog('A', 'page-reader.js:select-track', 'track cached', {
@@ -409,8 +410,12 @@ document.addEventListener(SELECT_EVENT, async (e) => {
   });
   // #endregion
 
-  const ok = await applyTrack(track, 'initial');
-  if (ok && vid) attachAdMonitor(vid);
+  if (isAdPlaying()) {
+    rlog.info('Ad is playing — waiting for content before first subtitle apply.');
+    await waitUntilNoAd();
+  }
+
+  await applyTrack(track, 'initial');
 });
 
 // ─── Entry points ─────────────────────────────────────────────────────────────
@@ -432,6 +437,6 @@ document.addEventListener('yt-navigate-finish', () => {
   rlog.info(`yt-navigate-finish — new video ID: "${vid ?? 'none'}"`);
   cachedTrack = null;
   cachedVideoId = null;
-  adMonitorAttachedFor = null;
+  stopAdEdgePoller();
   if (vid) pollAndDispatch(vid);
 });
