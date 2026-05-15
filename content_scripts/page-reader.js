@@ -230,19 +230,6 @@ const SELECT_EVENT   = 'babeltube:select-track';
 const PLAYER_POLL_MS = 200;
 const PLAYER_TIMEOUT = 15000;
 
-// #region agent log
-const DBG_INGEST = 'http://127.0.0.1:7537/ingest/9467374b-82f9-495a-8d7f-15e13322551a';
-function dbgLog(hypothesisId, location, message, data = {}) {
-  fetch(DBG_INGEST, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c97cd0' },
-    body: JSON.stringify({
-      sessionId: 'c97cd0', hypothesisId, location, message, data, timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-}
-// #endregion
-
 /** Cached track for re-apply after YouTube ad → content transition */
 let cachedTrack = null;
 let cachedVideoId = null;
@@ -253,18 +240,6 @@ let pipelineRunning = false;
 /** After user skips an ad, ignore stale ad DOM for this long (runtime: isAdPlaying stayed true). */
 let forceContentApplyUntil = 0;
 
-/** Always visible — critical ad/subtitle pipeline steps (not gated on debug mode). */
-function pipelineLog(message, data) {
-  if (data !== undefined) {
-    console.log('%c[BabelTube:reader]', 'color:#ff8844;font-weight:bold', message, data);
-  } else {
-    console.log('%c[BabelTube:reader]', 'color:#ff8844;font-weight:bold', message);
-  }
-  // #region agent log
-  dbgLog('F', 'page-reader.js:pipeline', message, data ?? {});
-  // #endregion
-}
-
 function isElementVisible(el) {
   if (!el) return false;
   const rect = el.getBoundingClientRect();
@@ -273,10 +248,7 @@ function isElementVisible(el) {
   return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0.01;
 }
 
-/**
- * Returns which ad signals are active (for debug). Runtime evidence: broad selectors
- * (.ytp-ad-module, hidden skip button) kept isAdPlaying=true after skip.
- */
+/** Returns which ad UI signals are currently active (used when debug mode is on). */
 function getAdSignals() {
   const p = document.querySelector('#movie_player');
   const skip = document.querySelector(
@@ -306,26 +278,14 @@ function isAdPlaying() {
     s.visibleOverlay ||
     s.visibleAdText;
 
-  if (playing) {
-    pipelineLog('isAdPlaying=true', s);
-    // #region agent log
-    dbgLog('G', 'page-reader.js:isAdPlaying', 'ad signals active', s);
-    // #endregion
-  }
+  if (playing) rlog.dim('isAdPlaying=true', s);
 
   return playing;
 }
 
 function markAdSkippedByUser() {
   forceContentApplyUntil = Date.now() + 12000;
-  pipelineLog('User skipped ad — treating as main content for 12s', {
-    until: forceContentApplyUntil,
-  });
-  // #region agent log
-  dbgLog('G', 'page-reader.js:markAdSkippedByUser', 'force content window', {
-    until: forceContentApplyUntil,
-  });
-  // #endregion
+  rlog.info('User skipped ad — treating as main content for 12s');
 }
 
 function stopAdEdgePoller() {
@@ -350,11 +310,6 @@ function startAdEdgePoller() {
     const ad = isAdPlaying();
 
     if (lastAdPlaying === true && ad === false) {
-      // #region agent log
-      dbgLog('A', 'page-reader.js:adEdgePoller', 'ad→content edge detected', {
-        videoId: cachedVideoId,
-      });
-      // #endregion
       rlog.info('Ad ended — re-applying subtitles to main video (poller).');
       await applyAfterAdTransition();
     }
@@ -370,17 +325,12 @@ async function applyAfterAdTransition({ force = false } = {}) {
   for (let i = 0; i < delaysMs.length; i++) {
     await new Promise((r) => setTimeout(r, delaysMs[i]));
     if (!force && isAdPlaying()) {
-      pipelineLog(`Re-apply attempt ${i} skipped — isAdPlaying still true`, getAdSignals());
+      rlog.dim(`Re-apply attempt ${i} skipped — isAdPlaying still true`, getAdSignals());
       return;
     }
     const ok = await applyTrack(cachedTrack, force ? `after-skip-${i}` : `after-ad-${i}`);
-    // #region agent log
-    dbgLog('A', 'page-reader.js:applyAfterAdTransition', `attempt ${i}`, {
-      ok, force, signals: getAdSignals(),
-    });
-    // #endregion
     if (ok) {
-      pipelineLog(`Subtitles applied (attempt ${i}, force=${force})`);
+      rlog.info(`Subtitles applied (attempt ${i}, force=${force})`);
       return;
     }
   }
@@ -389,19 +339,14 @@ async function applyAfterAdTransition({ force = false } = {}) {
 /** Wait until pre-roll / mid-roll ad finishes before first apply. */
 async function waitUntilNoAd(maxMs = 45000) {
   const start = Date.now();
-  pipelineLog('Waiting for ad to finish...');
+  rlog.dim('Waiting for ad to finish...');
   while (Date.now() - start < maxMs) {
     if (Date.now() < forceContentApplyUntil) break;
     if (!isAdPlaying()) break;
     await new Promise((r) => setTimeout(r, 250));
   }
   const stillAd = isAdPlaying();
-  pipelineLog('Ad wait finished', { stillAd, waitedMs: Date.now() - start, signals: getAdSignals() });
-  // #region agent log
-  dbgLog('B', 'page-reader.js:waitUntilNoAd', 'wait finished', {
-    stillAd, waitedMs: Date.now() - start,
-  });
-  // #endregion
+  rlog.dim('Ad wait finished', { stillAd, waitedMs: Date.now() - start });
   return !stillAd;
 }
 
@@ -416,12 +361,12 @@ function attachSkipAdListener() {
       );
       if (!el || !cachedTrack) return;
       markAdSkippedByUser();
-      pipelineLog('Skip-ad button clicked — force-applying subtitles');
+      rlog.info('Skip-ad button clicked — force-applying subtitles');
       void applyAfterAdTransition({ force: true });
     },
     true
   );
-  pipelineLog('Skip-ad click listener attached');
+  rlog.dim('Skip-ad click listener attached');
 }
 
 /**
@@ -431,16 +376,13 @@ function attachSkipAdListener() {
  */
 async function runSubtitlePipeline(track) {
   if (pipelineRunning) {
-    pipelineLog('Pipeline already running — ignoring duplicate select-track');
+    rlog.dim('Pipeline already running — ignoring duplicate select-track');
     return;
   }
   pipelineRunning = true;
 
   try {
-    pipelineLog('Subtitle pipeline started', {
-      videoId: cachedVideoId,
-      adNow: isAdPlaying(),
-    });
+    rlog.dim('Subtitle pipeline started', { videoId: cachedVideoId, adNow: isAdPlaying() });
 
     startAdEdgePoller();
     attachSkipAdListener();
@@ -454,23 +396,21 @@ async function runSubtitlePipeline(track) {
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    pipelineLog('Prime window complete', {
+    rlog.dim('Prime window complete', {
       adSeenInPrime,
       adNow: isAdPlaying(),
       primeMs: Date.now() - primeStart,
     });
 
     if (adSeenInPrime || isAdPlaying()) {
-      pipelineLog('Pre-roll ad detected — deferring subtitle apply until after ad');
+      rlog.info('Pre-roll ad detected — deferring subtitle apply until after ad');
       await waitUntilNoAd();
       await applyAfterAdTransition();
-      pipelineLog('Pipeline finished (post-ad path)');
       return;
     }
 
-    pipelineLog('No pre-roll ad — applying subtitles to main content');
+    rlog.dim('No pre-roll ad — applying subtitles to main content');
     await applyTrack(track, 'initial');
-    pipelineLog('Pipeline finished (direct path)');
   } finally {
     pipelineRunning = false;
   }
@@ -505,60 +445,34 @@ async function applyTrack(track, reason) {
   const player = await waitForPlayerMain();
   if (!player) return false;
 
-  const signals = getAdSignals();
   const adDuringApply = isAdPlaying();
-  // #region agent log
-  dbgLog('B', 'page-reader.js:applyTrack', 'setOption attempt', {
-    reason, adDuringApply, videoId: cachedVideoId,
-    trackLang: track.languageCode, signals,
-  });
-  // #endregion
-
-  pipelineLog(`Applying track (${reason})`, { adDuringApply, signals });
   rlog.info(`Applying track (${reason}), adPlaying=${adDuringApply}`);
   try {
     player.setOption('captions', 'track', track);
     rlog.info('player.setOption called successfully.');
-    // #region agent log
-    dbgLog('D', 'page-reader.js:applyTrack', 'setOption success', { reason, adDuringApply });
-    // #endregion
     return true;
   } catch (err) {
     rlog.error('player.setOption threw an error:', err);
-    // #region agent log
-    dbgLog('D', 'page-reader.js:applyTrack', 'setOption error', { reason, error: String(err) });
-    // #endregion
     return false;
   }
 }
 
 document.addEventListener(SELECT_EVENT, (e) => {
   const { track } = e.detail ?? {};
-  pipelineLog('select-track event received', { hasTrack: !!track });
-
   if (!track) {
     rlog.warn('No track payload in select-track event — ignoring.');
     return;
   }
 
-  const vid = currentVideoId();
   cachedTrack = track;
-  cachedVideoId = vid;
+  cachedVideoId = currentVideoId();
   stopAdEdgePoller();
-
-  // #region agent log
-  dbgLog('A', 'page-reader.js:select-track', 'track cached', {
-    videoId: vid, trackLang: track.languageCode, hasTranslation: !!track.translationLanguage,
-  });
-  // #endregion
-
   void runSubtitlePipeline(track);
 });
 
 // ─── Entry points ─────────────────────────────────────────────────────────────
 
-console.log('[BabelTube:reader] MAIN world script loaded (page-reader.js)');
-rlog.info('page-reader.js loaded (MAIN world). YouTube globals are accessible.');
+rlog.info('page-reader.js loaded (MAIN world).');
 
 // Initial hard page load
 const initVideoId = currentVideoId();
