@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BabelTube",
   "version": "1.0.0",
-  "description": "Automatically detects foreign-language YouTube videos and selects the best subtitles in your target language — with an auto-translate fallback.",
+  "description": "Auto-selects subtitles and guides page translation for foreign-language YouTube videos.",
   "author": "cluelessno1",
 
   "permissions": [
