@@ -18,7 +18,6 @@
 'use strict';
 
 function getLangUtils() {
-  if (typeof BabelTubeLang !== 'undefined') return BabelTubeLang;
   return globalThis.BabelTubeLang ?? null;
 }
 

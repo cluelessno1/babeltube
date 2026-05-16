@@ -1,15 +1,20 @@
 /**
  * BabelTube — language-utils.js
  * Shared language detection (no chrome.* APIs). Loaded in MAIN + ISOLATED worlds.
+ *
+ * All helpers are scoped inside an IIFE to avoid name collisions with
+ * page-reader.js and youtube.js which run in the same JS world.
+ * The public API is exported via globalThis.BabelTubeLang only.
  */
 'use strict';
 
-/** ISO 639 codes that are not a real content language */
-const INVALID_LANG_CODES = new Set([
-  'und', 'zxx', 'mis', 'mul', 'qaa', 'qad', 'qub', 'unknown',
-]);
+(function () {
+  /** ISO 639 codes that are not a real content language */
+  const INVALID_LANG_CODES = new Set([
+    'und', 'zxx', 'mis', 'mul', 'qaa', 'qad', 'qub', 'unknown',
+  ]);
 
-const LP = '%c[BabelTube:lang]';
+  const LP = '%c[BabelTube:lang]';
   const LS = 'color:#cc8844;font-weight:bold';
   const LD = 'color:#886644;font-weight:normal';
 
@@ -288,18 +293,15 @@ const LP = '%c[BabelTube:lang]';
     return 'No captions';
   }
 
-const api = {
-  normalizeLangCode,
-  getWatchVideoIdFromUrl,
-  getMoviePlayer,
-  getPlayerAudioTrackCode,
-  getAdaptiveDefaultAudioCode,
-  resolvePlayerResponse,
-  extractCaptionData,
-  detectVideoLanguage,
-  getSubtitleStatusLabel,
-};
-
-// var binds to the content-script global so sibling scripts (youtube.js) can use BabelTubeLang directly.
-var BabelTubeLang = api;
-globalThis.BabelTubeLang = api;
+  globalThis.BabelTubeLang = {
+    normalizeLangCode,
+    getWatchVideoIdFromUrl,
+    getMoviePlayer,
+    getPlayerAudioTrackCode,
+    getAdaptiveDefaultAudioCode,
+    resolvePlayerResponse,
+    extractCaptionData,
+    detectVideoLanguage,
+    getSubtitleStatusLabel,
+  };
+})();
