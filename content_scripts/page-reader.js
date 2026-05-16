@@ -64,10 +64,25 @@ function safeJson(obj) {
  * comprehensive debug dump of all relevant YouTube globals.
  */
 function extractPageData(ipr) {
+  const Lang = globalThis.BabelTubeLang;
+  if (!Lang) {
+    rlog.error('BabelTubeLang not loaded in MAIN world — reload extension at chrome://extensions');
+    return {
+      videoId: ipr?.videoDetails?.videoId ?? null,
+      captionTracks: [],
+      audioTracks: [],
+      defaultAudioTrackIndex: 0,
+      audioLanguageCode: null,
+      playerAudioCode: null,
+      adaptiveAudioCode: null,
+      debugDump: { babelTubeLangMissing: true },
+    };
+  }
+
   const renderer = ipr?.captions?.playerCaptionsTracklistRenderer ?? null;
-  const cap = BabelTubeLang.extractCaptionData(ipr);
-  const playerAudioCode = BabelTubeLang.getPlayerAudioTrackCode();
-  const adaptiveAudioCode = BabelTubeLang.getAdaptiveDefaultAudioCode(ipr);
+  const cap = Lang.extractCaptionData(ipr);
+  const playerAudioCode = Lang.normalizeLangCode(Lang.getPlayerAudioTrackCode());
+  const adaptiveAudioCode = Lang.normalizeLangCode(Lang.getAdaptiveDefaultAudioCode(ipr));
 
   const { captionTracks, audioTracks, defaultAudioTrackIndex, audioLanguageCode } = cap;
 
@@ -168,7 +183,12 @@ function pollAndDispatch(expectedVideoId) {
   rlog.info(`Polling for player response (videoId="${expectedVideoId}")...`);
 
   const tick = () => {
-    const resolved = BabelTubeLang.resolvePlayerResponse(expectedVideoId);
+    const Lang = globalThis.BabelTubeLang;
+    if (!Lang) {
+      rlog.error('BabelTubeLang not loaded — reload extension');
+      return;
+    }
+    const resolved = Lang.resolvePlayerResponse(expectedVideoId);
     const staleIpr = window.ytInitialPlayerResponse;
     const staleId = staleIpr?.videoDetails?.videoId;
 

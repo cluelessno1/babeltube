@@ -4,6 +4,11 @@
  */
 'use strict';
 
+/** ISO 639 codes that are not a real content language */
+const INVALID_LANG_CODES = new Set([
+  'und', 'zxx', 'mis', 'mul', 'qaa', 'qad', 'qub', 'unknown',
+]);
+
 (function () {
   const LP = '%c[BabelTube:lang]';
   const LS = 'color:#cc8844;font-weight:bold';
@@ -39,7 +44,12 @@
   function normalizeLangCode(raw) {
     if (raw == null || raw === '') return null;
     const part = String(raw).toLowerCase().split(/[-_.]/)[0];
-    return part.length >= 2 ? part : null;
+    if (part.length < 2) return null;
+    if (INVALID_LANG_CODES.has(part)) {
+      logDim(`normalizeLangCode: ignoring non-language code "${part}"`);
+      return null;
+    }
+    return part;
   }
 
   function getWatchVideoIdFromUrl() {
@@ -152,20 +162,24 @@
 
   function detectVideoLanguage(opts) {
     const {
-      playerAudioCode = null,
-      adaptiveAudioCode = null,
-      audioLanguageCode = null,
+      playerAudioCode: rawPlayerAudio = null,
+      adaptiveAudioCode: rawAdaptive = null,
+      audioLanguageCode: rawMicro = null,
       captionTracks = [],
       audioTracks = [],
       defaultAudioTrackIndex = 0,
       targetLanguage = 'en',
     } = opts;
 
+    const playerAudioCode = normalizeLangCode(rawPlayerAudio);
+    const adaptiveAudioCode = normalizeLangCode(rawAdaptive);
+    const audioLanguageCode = normalizeLangCode(rawMicro);
+
     const target = (targetLanguage || 'en').toLowerCase();
 
     logGroup('detectVideoLanguage');
     logDim('targetLanguage:', target);
-    logDim('playerAudioCode:', playerAudioCode);
+    logDim('playerAudioCode:', playerAudioCode, rawPlayerAudio !== playerAudioCode ? `(raw: ${rawPlayerAudio})` : '');
     logDim('adaptiveAudioCode:', adaptiveAudioCode);
     logDim('microformat audioLanguageCode:', audioLanguageCode);
     logDim('captionTracks:', captionTracks.length, 'audioTracks:', audioTracks.length);
@@ -275,7 +289,7 @@
     return 'No captions';
   }
 
-  window.BabelTubeLang = {
+  const api = {
     normalizeLangCode,
     getWatchVideoIdFromUrl,
     getMoviePlayer,
@@ -286,4 +300,9 @@
     detectVideoLanguage,
     getSubtitleStatusLabel,
   };
+
+  globalThis.BabelTubeLang = api;
+  if (typeof window !== 'undefined') {
+    window.BabelTubeLang = api;
+  }
 })();

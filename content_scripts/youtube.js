@@ -17,6 +17,10 @@
 
 'use strict';
 
+function getLangUtils() {
+  return globalThis.BabelTubeLang ?? (typeof window !== 'undefined' ? window.BabelTubeLang : null);
+}
+
 // ─── Debug logger ─────────────────────────────────────────────────────────────
 // All log calls are gated on the DEBUG flag (except errors, which are always shown).
 // Toggle debug mode via BabelTube Settings → "Debug mode".
@@ -288,7 +292,17 @@ async function handlePageData(pageData) {
   log.dim('audioLanguageCode (microformat):', audioLanguageCode);
   if (captionTracks.length) log.table(captionTracks);
 
-  const detection = BabelTubeLang.detectVideoLanguage({
+  const Lang = getLangUtils();
+  if (!Lang) {
+    log.error(
+      'language-utils.js is not loaded in the isolated world. ' +
+      'Reload BabelTube at chrome://extensions (Developer mode → Reload).'
+    );
+    log.groupEnd();
+    return;
+  }
+
+  const detection = Lang.detectVideoLanguage({
     playerAudioCode,
     adaptiveAudioCode,
     audioLanguageCode,
@@ -302,7 +316,7 @@ async function handlePageData(pageData) {
   const { code: detectedCode, ambiguous, method } = detection;
   log.info(`Detection result: method="${method}", code="${detectedCode ?? 'null'}", ambiguous=${ambiguous}`);
 
-  const subtitleLabel = BabelTubeLang.getSubtitleStatusLabel({
+  const subtitleLabel = Lang.getSubtitleStatusLabel({
     captionTracks,
     enableSubtitles: settings.enableSubtitles !== false,
     detectedCode,
