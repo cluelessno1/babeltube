@@ -64,42 +64,68 @@
     return document.querySelector('#movie_player');
   }
 
-  function getPlayerAudioTrackCode() {
+  function getPlayerAudioTrackRaw() {
     const player = getMoviePlayer();
     if (!player || typeof player.getAudioTrack !== 'function') {
-      logDim('getAudioTrack: not available on #movie_player');
       return null;
     }
     try {
       const track = player.getAudioTrack();
       if (!track || typeof track.getLanguageInfo !== 'function') {
-        logDim('getAudioTrack: no track or getLanguageInfo');
         return null;
       }
       const info = track.getLanguageInfo();
-      const code = normalizeLangCode(info?.id);
-      if (code) {
-        logInfo(`getAudioTrack → "${code}" (name="${info?.name ?? ''}")`);
-      }
-      return code;
+      return { id: info?.id ?? null, name: info?.name ?? null };
     } catch (e) {
       logWarn('getAudioTrack error:', e);
       return null;
     }
   }
 
+  function getPlayerAudioTrackCode() {
+    const raw = getPlayerAudioTrackRaw();
+    if (!raw) {
+      logDim('getAudioTrack: not available on #movie_player');
+      return null;
+    }
+    const code = normalizeLangCode(raw.id);
+    if (code) {
+      logInfo(`getAudioTrack → "${code}" (name="${raw.name ?? ''}")`);
+    } else if (raw.id) {
+      logDim(`getAudioTrack: raw id="${raw.id}" (name="${raw.name ?? ''}") — not a language code`);
+    }
+    return code;
+  }
+
+  function countAdaptiveAudioTracks(ipr) {
+    if (!ipr) return 0;
+    const formats = ipr.streamingData?.adaptiveFormats ?? [];
+    return formats.filter((f) => f?.audioTrack?.id).length;
+  }
+
   function getAdaptiveDefaultAudioCode(ipr) {
     if (!ipr) return null;
     const formats = ipr.streamingData?.adaptiveFormats ?? [];
     const def = formats.find((f) => f?.audioTrack?.audioIsDefault === true);
-    if (!def?.audioTrack) {
-      logDim('adaptiveFormats: no default audioTrack');
+    if (def?.audioTrack) {
+      const code = normalizeLangCode(def.audioTrack.id);
+      if (code) {
+        logInfo(
+          `adaptiveFormats (default) → "${code}" (display="${def.audioTrack.displayName ?? ''}")`
+        );
+      }
+      return code;
+    }
+
+    const first = formats.find((f) => f?.audioTrack?.id);
+    if (!first?.audioTrack) {
+      logDim('adaptiveFormats: no audioTrack entries');
       return null;
     }
-    const code = normalizeLangCode(def.audioTrack.id);
+    const code = normalizeLangCode(first.audioTrack.id);
     if (code) {
       logInfo(
-        `adaptiveFormats default → "${code}" (display="${def.audioTrack.displayName ?? ''}")`
+        `adaptiveFormats (first) → "${code}" (display="${first.audioTrack.displayName ?? ''}")`
       );
     }
     return code;
@@ -155,12 +181,14 @@
     const audioLanguageCode = normalizeLangCode(
       mf?.defaultAudioLanguageISO639_1 ?? mf?.audioLanguage
     );
+    const videoDetailsLanguage = normalizeLangCode(ipr?.videoDetails?.language);
 
     return {
       captionTracks,
       audioTracks,
       defaultAudioTrackIndex: renderer?.defaultAudioTrackIndex ?? 0,
       audioLanguageCode,
+      videoDetailsLanguage,
     };
   }
 
@@ -169,6 +197,7 @@
       playerAudioCode: rawPlayerAudio = null,
       adaptiveAudioCode: rawAdaptive = null,
       audioLanguageCode: rawMicro = null,
+      videoDetailsLanguage: rawVideoDetails = null,
       captionTracks = [],
       audioTracks = [],
       defaultAudioTrackIndex = 0,
@@ -178,6 +207,7 @@
     const playerAudioCode = normalizeLangCode(rawPlayerAudio);
     const adaptiveAudioCode = normalizeLangCode(rawAdaptive);
     const audioLanguageCode = normalizeLangCode(rawMicro);
+    const videoDetailsLanguage = normalizeLangCode(rawVideoDetails);
 
     const target = (targetLanguage || 'en').toLowerCase();
 
@@ -186,6 +216,7 @@
     logDim('playerAudioCode:', playerAudioCode, rawPlayerAudio !== playerAudioCode ? `(raw: ${rawPlayerAudio})` : '');
     logDim('adaptiveAudioCode:', adaptiveAudioCode);
     logDim('microformat audioLanguageCode:', audioLanguageCode);
+    logDim('videoDetails.language:', videoDetailsLanguage);
     logDim('captionTracks:', captionTracks.length, 'audioTracks:', audioTracks.length);
 
     if (playerAudioCode) {
@@ -198,6 +229,12 @@
       logInfo(`✓ method: adaptiveFormats → "${adaptiveAudioCode}"`);
       logGroupEnd();
       return { code: adaptiveAudioCode, ambiguous: false, method: 'adaptiveFormats' };
+    }
+
+    if (videoDetailsLanguage) {
+      logInfo(`✓ method: videoDetails → "${videoDetailsLanguage}"`);
+      logGroupEnd();
+      return { code: videoDetailsLanguage, ambiguous: false, method: 'videoDetails' };
     }
 
     // ASR (auto-generated) captions are produced by transcribing the audio — reliable language signal.
@@ -294,8 +331,10 @@
     normalizeLangCode,
     getWatchVideoIdFromUrl,
     getMoviePlayer,
+    getPlayerAudioTrackRaw,
     getPlayerAudioTrackCode,
     getAdaptiveDefaultAudioCode,
+    countAdaptiveAudioTracks,
     resolvePlayerResponse,
     extractCaptionData,
     detectVideoLanguage,

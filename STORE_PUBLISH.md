@@ -54,6 +54,7 @@ Use a **foreign-language watch page** (not Shorts). Example: Korean video with E
 | 10 | **Debug mode** | Off for store builds (default) |
 | 11 | EN+KO human subs, target English | Ambiguous → popup "Couldn't determine", subs still open in target |
 | 12 | Playlist / Mix next video | No 12s timeout; `[BabelTube:reader]` shows `getPlayerResponse` match |
+| 13 | English audio, **no captions** (e.g. `wYYYsWAhzwk`) | No banner; popup **Couldn't detect video language** + **No captions** (or **Already in target** if `getAudioTrack` resolves after wait) |
 
 **Optional (ads / incognito):** If you changed `page-reader.js` ad logic, test in **Incognito** with a non-Premium account or a video that shows ads. Confirm subtitles apply after pre-roll ends.
 

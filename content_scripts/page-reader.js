@@ -36,6 +36,8 @@ const rlog = {
 const BT_EVENT   = 'babeltube:page-data';
 const POLL_MS    = 150;
 const TIMEOUT_MS = 12000;
+/** When IPR has no captions and no audio codes yet, keep polling getAudioTrack this long. */
+const AUDIO_SIGNAL_TIMEOUT_MS = 3000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,7 @@ function attachDetection(data) {
     playerAudioCode: data.playerAudioCode,
     adaptiveAudioCode: data.adaptiveAudioCode,
     audioLanguageCode: data.audioLanguageCode,
+    videoDetailsLanguage: data.videoDetailsLanguage,
     captionTracks: data.captionTracks,
     audioTracks: data.audioTracks,
     defaultAudioTrackIndex: data.defaultAudioTrackIndex ?? 0,
@@ -123,10 +126,18 @@ function extractPageData(ipr) {
 
   const renderer = ipr?.captions?.playerCaptionsTracklistRenderer ?? null;
   const cap = Lang.extractCaptionData(ipr);
+  const playerAudioRaw = Lang.getPlayerAudioTrackRaw?.() ?? null;
   const playerAudioCode = Lang.normalizeLangCode(Lang.getPlayerAudioTrackCode());
   const adaptiveAudioCode = Lang.normalizeLangCode(Lang.getAdaptiveDefaultAudioCode(ipr));
+  const adaptiveAudioCount = Lang.countAdaptiveAudioTracks?.(ipr) ?? 0;
 
-  const { captionTracks, audioTracks, defaultAudioTrackIndex, audioLanguageCode } = cap;
+  const {
+    captionTracks,
+    audioTracks,
+    defaultAudioTrackIndex,
+    audioLanguageCode,
+    videoDetailsLanguage,
+  } = cap;
 
   rlog.dim(
     `extractPageData — playerAudio: ${playerAudioCode ?? 'none'}, ` +
@@ -149,6 +160,9 @@ function extractPageData(ipr) {
     captionTrackCount:   captionTracks.length,
     audioTrackCount:     audioTracks.length,
     defaultAudioIndex:   renderer?.defaultAudioTrackIndex ?? null,
+    playerAudioRaw:      playerAudioRaw ?? null,
+    adaptiveAudioCount,
+    videoDetailsLanguage: videoDetailsLanguage ?? null,
     translationLanguages: (renderer?.translationLanguages ?? [])
       .map((l) => `${l.languageName?.simpleText ?? '?'} (${l.languageCode})`),
 
@@ -212,16 +226,40 @@ function extractPageData(ipr) {
     audioTracks,
     defaultAudioTrackIndex,
     audioLanguageCode,
+    videoDetailsLanguage,
     playerAudioCode,
     adaptiveAudioCode,
     debugDump,
   };
 }
 
+function shouldWaitForAudioSignal(data) {
+  return (
+    data.captionTracks.length === 0 &&
+    !data.playerAudioCode &&
+    !data.adaptiveAudioCode &&
+    !data.detection?.code
+  );
+}
+
+function dispatchPageData(data) {
+  rlog.dim('Dispatching babeltube:page-data event with payload:', JSON.stringify({
+    videoId: data.videoId,
+    resolveSource: data.resolveSource,
+    captionTrackCount: data.captionTracks.length,
+    playerAudioCode: data.playerAudioCode,
+    adaptiveAudioCode: data.adaptiveAudioCode,
+    detectedCode: data.detection?.code ?? null,
+    ambiguous: data.detection?.ambiguous ?? false,
+  }));
+  document.dispatchEvent(new CustomEvent(BT_EVENT, { detail: data }));
+}
+
 // ─── Poll & dispatch ──────────────────────────────────────────────────────────
 
 function pollAndDispatch(expectedVideoId) {
   const start = Date.now();
+  let iprMatchedAt = null;
   rlog.info(`Polling for player response (videoId="${expectedVideoId}")...`);
 
   const tick = () => {
@@ -242,21 +280,29 @@ function pollAndDispatch(expectedVideoId) {
     );
 
     if (resolved?.ipr) {
-      rlog.info(
-        `Player response matched via ${resolved.source} after ${Date.now() - start}ms. Extracting data...`
-      );
+      if (iprMatchedAt === null) {
+        iprMatchedAt = Date.now();
+        rlog.info(
+          `Player response matched via ${resolved.source} after ${Date.now() - start}ms. Extracting data...`
+        );
+      }
+
       const data = attachDetection(extractPageData(resolved.ipr));
       data.resolveSource = resolved.source;
-      rlog.dim('Dispatching babeltube:page-data event with payload:', JSON.stringify({
-        videoId: data.videoId,
-        resolveSource: data.resolveSource,
-        captionTrackCount: data.captionTracks.length,
-        playerAudioCode: data.playerAudioCode,
-        adaptiveAudioCode: data.adaptiveAudioCode,
-        detectedCode: data.detection?.code ?? null,
-        ambiguous: data.detection?.ambiguous ?? false,
-      }));
-      document.dispatchEvent(new CustomEvent(BT_EVENT, { detail: data }));
+
+      if (shouldWaitForAudioSignal(data)) {
+        const audioElapsed = Date.now() - iprMatchedAt;
+        if (audioElapsed < AUDIO_SIGNAL_TIMEOUT_MS) {
+          rlog.dim(
+            `Waiting for player audio signal (no captions)... ${audioElapsed}ms`
+          );
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        rlog.dim('Audio signal wait timed out — dispatching with unknown.');
+      }
+
+      dispatchPageData(data);
       return;
     }
 

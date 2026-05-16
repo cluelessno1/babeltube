@@ -93,6 +93,7 @@ async function getVideoInfo(tabId, targetLanguage, enableSubtitles) {
           playerAudioCode,
           adaptiveAudioCode,
           audioLanguageCode: cap.audioLanguageCode,
+          videoDetailsLanguage: cap.videoDetailsLanguage,
           captionTracks: cap.captionTracks,
           audioTracks: cap.audioTracks,
           defaultAudioTrackIndex: cap.defaultAudioTrackIndex,
@@ -163,7 +164,7 @@ async function init() {
       const isForeign = info.detectedCode !== target;
       detectedEl.className = `status-value ${isForeign ? 'detected' : 'ok'}`;
     } else {
-      detectedEl.textContent = 'Unknown';
+      detectedEl.textContent = "Couldn't detect video language";
       detectedEl.className = 'status-value na';
     }
 

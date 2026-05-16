@@ -256,6 +256,7 @@ async function handlePageData(pageData) {
     audioTracks,
     defaultAudioTrackIndex,
     audioLanguageCode,
+    videoDetailsLanguage,
     playerAudioCode,
     adaptiveAudioCode,
     resolveSource,
@@ -307,12 +308,14 @@ async function handlePageData(pageData) {
         'language-utils.js is not loaded. Reload BabelTube at chrome://extensions (Developer mode → Reload).'
       );
       log.groupEnd();
+      syncPopupDataset(null, false, 'No captions');
       return;
     }
     detection = Lang.detectVideoLanguage({
       playerAudioCode,
       adaptiveAudioCode,
       audioLanguageCode,
+      videoDetailsLanguage,
       captionTracks,
       audioTracks,
       defaultAudioTrackIndex: defaultAudioTrackIndex ?? 0,

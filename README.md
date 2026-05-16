@@ -134,11 +134,14 @@ The toolbar **popup** uses shared [`language-utils.js`](content_scripts/language
 **Language detection order** (first match wins):
 
 1. `getAudioTrack()` — player API (multi-audio / dubbed videos)
-2. `adaptiveFormats` — default audio from player response
-3. **ASR** — auto-generated captions (transcribed from audio; reliable for single-language videos)
-4. `captionDefaultAudio` — caption renderer audio→caption mapping
-5. `singleHumanCaption` / `sharedHumanCaptionLang` — human subtitle tracks
-6. `unknown`
+2. `adaptiveFormats` — default (or first) audio from player response
+3. `videoDetails.language` — when present on the player response
+4. **ASR** — auto-generated captions (transcribed from audio; reliable for single-language videos)
+5. `captionDefaultAudio` — caption renderer audio→caption mapping
+6. `singleHumanCaption` / `sharedHumanCaptionLang` — human subtitle tracks
+7. `unknown`
+
+Videos with **no caption tracks** rely on steps 1–3 only; the extension may wait up to ~3s for `getAudioTrack()` before giving up.
 ```
 
 ### Common issues
