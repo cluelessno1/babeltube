@@ -200,10 +200,15 @@
       return { code: adaptiveAudioCode, ambiguous: false, method: 'adaptiveFormats' };
     }
 
-    if (audioLanguageCode) {
-      logInfo(`✓ method: microformat → "${audioLanguageCode}"`);
-      logGroupEnd();
-      return { code: audioLanguageCode, ambiguous: false, method: 'microformat' };
+    // ASR (auto-generated) captions are produced by transcribing the audio — reliable language signal.
+    const asr = captionTracks.find((t) => t.kind === 'asr');
+    if (asr) {
+      const code = normalizeLangCode(asr.languageCode);
+      if (code) {
+        logInfo(`✓ method: asr → "${code}"`);
+        logGroupEnd();
+        return { code, ambiguous: false, method: 'asr' };
+      }
     }
 
     if (audioTracks.length > 0 && captionTracks.length > 0) {
@@ -248,14 +253,6 @@
         logGroupEnd();
         return { code: langs[0], ambiguous: false, method: 'sharedHumanCaptionLang' };
       }
-    }
-
-    const asr = captionTracks.find((t) => t.kind === 'asr');
-    if (asr) {
-      const code = normalizeLangCode(asr.languageCode);
-      logInfo(`✓ method: asr → "${code}"`);
-      logGroupEnd();
-      return { code, ambiguous: false, method: 'asr' };
     }
 
     logWarn('✓ method: unknown — could not determine language');
