@@ -14,11 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read version from manifest
+        id: meta
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip=babeltube-v${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
       - name: Build Chrome Web Store ZIP
         run: bash scripts/package-store.sh
 
       - name: Attach ZIP to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: babeltube-store.zip
+          files: ${{ steps.meta.outputs.zip }}
           fail_on_unmatched_files: true

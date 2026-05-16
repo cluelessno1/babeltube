@@ -129,7 +129,16 @@ BabelTube uses two content scripts to work around Chrome's extension isolation:
 │  • Role: reads settings, shows banner, selects subtitle tracks  │
 └─────────────────────────────────────────────────────────────────┘
 
-The toolbar **popup** uses shared [`language-utils.js`](content_scripts/language-utils.js) via `chrome.scripting.executeScript` (`world: 'MAIN'`). Language detection prefers `getAudioTrack()`, `getPlayerResponse()`, then microformat/caption rules (v1.0.2).
+The toolbar **popup** uses shared [`language-utils.js`](content_scripts/language-utils.js) via `chrome.scripting.executeScript` (`world: 'MAIN'`). Detection runs in **MAIN** (`page-reader.js`) and is passed to `youtube.js` via the page-data event.
+
+**Language detection order** (first match wins):
+
+1. `getAudioTrack()` — player API (multi-audio / dubbed videos)
+2. `adaptiveFormats` — default audio from player response
+3. **ASR** — auto-generated captions (transcribed from audio; reliable for single-language videos)
+4. `captionDefaultAudio` — caption renderer audio→caption mapping
+5. `singleHumanCaption` / `sharedHumanCaptionLang` — human subtitle tracks
+6. `unknown`
 ```
 
 ### Common issues
@@ -185,18 +194,18 @@ youtube.js receives event
 
 1. **Test** — load unpacked from the repo; see [Testing](STORE_PUBLISH.md#testing-before-you-package).
 2. **Bump version** in `manifest.json` (required for each store upload).
-3. **Package** — `.\scripts\package-store.ps1` (Windows) or `bash scripts/package-store.sh` (macOS/Linux).
+3. **Package** — `.\scripts\package-store.ps1` (Windows) or `bash scripts/package-store.sh` (macOS/Linux). Output: **`babeltube-v{version}.zip`** (version from `manifest.json`, e.g. `babeltube-v1.0.6.zip`).
 4. **Test staging** — load unpacked from `%TEMP%\babeltube-store` (path printed by the script).
-5. **Upload** `babeltube-store.zip` in the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Package** tab → **Submit for review**.
+5. **Upload** the versioned ZIP in the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Package** tab → **Submit for review**.
 
-**GitHub Releases:** Publish a release on GitHub → the [release workflow](.github/workflows/release.yml) builds and attaches `babeltube-store.zip` automatically. Use a tag like `v1.0.1` to match `manifest.json`.
+**GitHub Releases:** Publish a release (tag e.g. `v1.0.6` matching `manifest.json`) → [release workflow](.github/workflows/release.yml) builds and attaches **`babeltube-v1.0.6.zip`** to **that release only**. Older releases keep their own ZIP assets; publishing a new release does not replace downloads on previous releases.
 
 ### Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/package-store.ps1` | Build `babeltube-store.zip` (Windows) |
-| `scripts/package-store.sh` | Build `babeltube-store.zip` (macOS/Linux/CI) |
+| `scripts/package-store.ps1` | Build `babeltube-v{version}.zip` (Windows) |
+| `scripts/package-store.sh` | Build `babeltube-v{version}.zip` (macOS/Linux/CI) |
 | `scripts/resize-icons.py` | Regenerate 16 / 48 / 128 icons (`pip install pillow`) |
 | `scripts/resize-store-screenshots.py` | Resize listing screenshots to 1280×800 |
 
@@ -218,8 +227,8 @@ babeltube/
 ├── docs/privacy.html               # Privacy policy (host at public HTTPS URL)
 ├── .github/workflows/release.yml   # Attach store ZIP on GitHub Release
 ├── scripts/
-│   ├── package-store.ps1           # Build babeltube-store.zip (Windows)
-│   ├── package-store.sh            # Build babeltube-store.zip (bash)
+│   ├── package-store.ps1           # Build babeltube-v{version}.zip (Windows)
+│   ├── package-store.sh            # Build babeltube-v{version}.zip (bash)
 │   ├── resize-icons.py             # Regenerate 16/48/128 icons from icon128
 │   └── resize-store-screenshots.py # Resize store screenshots to 1280x800
 ├── store/                          # Listing screenshots (not in ZIP)

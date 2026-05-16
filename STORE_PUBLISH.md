@@ -13,7 +13,7 @@ Listing ID: `acmokckfempipaglglgokhkapijacmop`
 | 2 | Bump `version` in `manifest.json` |
 | 3 | Run `.\scripts\package-store.ps1` |
 | 4 | Test the **staging** folder (path printed by the script) |
-| 5 | Upload `babeltube-store.zip` in the dashboard → **Package** tab |
+| 5 | Upload `babeltube-v{version}.zip` in the dashboard → **Package** tab (version from `manifest.json`) |
 | 6 | **Submit for review** (updates are reviewed too) |
 
 ---
@@ -80,7 +80,7 @@ python scripts\resize-icons.py
 .\scripts\package-store.ps1
 ```
 
-**Output:** `C:\Repos\babeltube\babeltube-store.zip` (gitignored — do not commit)
+**Output:** `C:\Repos\babeltube\babeltube-v{version}.zip` (e.g. `babeltube-v1.0.6.zip` — version read from `manifest.json`; gitignored — do not commit)
 
 **Included in ZIP:** `manifest.json`, `background.js`, `content_scripts/`, `popup/`, `options/`, `icons/`
 
@@ -88,7 +88,9 @@ python scripts\resize-icons.py
 
 Re-run the script after any change you intend to ship.
 
-**GitHub Release:** Publishing a release on GitHub runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and attaches `babeltube-store.zip` to that release. Download it from the release assets or build locally with the commands above.
+**GitHub Release:** Publishing a release on GitHub runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and attaches **`babeltube-v{version}.zip`** to **that release only** (version from `manifest.json` at build time). Each release keeps its own asset — e.g. `v1.0.5` still has `babeltube-v1.0.5.zip` after you publish `v1.0.6` with `babeltube-v1.0.6.zip`. Download from the release page or build locally with the commands above.
+
+**Tag tip:** Use a tag like `v1.0.6` that matches `manifest.json` `"version": "1.0.6"`.
 
 ---
 
@@ -98,7 +100,7 @@ Re-run the script after any change you intend to ship.
 2. **Bump version** in `manifest.json` (e.g. `1.0.0` → `1.0.1` or `1.1.0`).
 3. Run `.\scripts\package-store.ps1` and test the staging folder again.
 4. Open [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **BabelTube**.
-5. **Package** tab → upload the new `babeltube-store.zip`.
+5. **Package** tab → upload the new `babeltube-v{version}.zip`.
 6. If the UI changed, update **Store listing** screenshots (`store/SCREENSHOTS.md`).
 7. If data practices changed, update `docs/privacy.html`, push to GitHub Pages, and edit the **Privacy** tab.
 8. **Submit for review** — updates are reviewed (often faster than the first submission).
@@ -143,7 +145,7 @@ If the main repo stays private, create a small public repo (e.g. `babeltube-priv
 
 ### 3. Upload package
 
-Build and test using [Build the store ZIP](#build-the-store-zip) and [Testing](#testing-before-you-package), then upload **`babeltube-store.zip`** (not the repo folder) on the **Package** tab.
+Build and test using [Build the store ZIP](#build-the-store-zip) and [Testing](#testing-before-you-package), then upload **`babeltube-v{version}.zip`** (not the repo folder) on the **Package** tab.
 
 ### 4. Store listing (paste)
 
