@@ -9,8 +9,7 @@ const INVALID_LANG_CODES = new Set([
   'und', 'zxx', 'mis', 'mul', 'qaa', 'qad', 'qub', 'unknown',
 ]);
 
-(function () {
-  const LP = '%c[BabelTube:lang]';
+const LP = '%c[BabelTube:lang]';
   const LS = 'color:#cc8844;font-weight:bold';
   const LD = 'color:#886644;font-weight:normal';
 
@@ -289,20 +288,18 @@ const INVALID_LANG_CODES = new Set([
     return 'No captions';
   }
 
-  const api = {
-    normalizeLangCode,
-    getWatchVideoIdFromUrl,
-    getMoviePlayer,
-    getPlayerAudioTrackCode,
-    getAdaptiveDefaultAudioCode,
-    resolvePlayerResponse,
-    extractCaptionData,
-    detectVideoLanguage,
-    getSubtitleStatusLabel,
-  };
+const api = {
+  normalizeLangCode,
+  getWatchVideoIdFromUrl,
+  getMoviePlayer,
+  getPlayerAudioTrackCode,
+  getAdaptiveDefaultAudioCode,
+  resolvePlayerResponse,
+  extractCaptionData,
+  detectVideoLanguage,
+  getSubtitleStatusLabel,
+};
 
-  globalThis.BabelTubeLang = api;
-  if (typeof window !== 'undefined') {
-    window.BabelTubeLang = api;
-  }
-})();
+// var binds to the content-script global so sibling scripts (youtube.js) can use BabelTubeLang directly.
+var BabelTubeLang = api;
+globalThis.BabelTubeLang = api;

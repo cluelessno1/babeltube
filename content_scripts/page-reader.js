@@ -57,6 +57,48 @@ function safeJson(obj) {
   }));
 }
 
+// ─── Settings mirror (written by youtube.js on documentElement) ───────────────
+
+function readTargetSettings() {
+  const root = document.documentElement;
+  return {
+    targetLanguage: (root.dataset.babeltubeTargetLanguage || 'en').toLowerCase(),
+    enableSubtitles: root.dataset.babeltubeEnableSubtitles !== '0',
+  };
+}
+
+function attachDetection(data) {
+  const Lang = globalThis.BabelTubeLang;
+  if (!Lang || !data) return data;
+
+  const { targetLanguage, enableSubtitles } = readTargetSettings();
+  const detection = Lang.detectVideoLanguage({
+    playerAudioCode: data.playerAudioCode,
+    adaptiveAudioCode: data.adaptiveAudioCode,
+    audioLanguageCode: data.audioLanguageCode,
+    captionTracks: data.captionTracks,
+    audioTracks: data.audioTracks,
+    defaultAudioTrackIndex: data.defaultAudioTrackIndex ?? 0,
+    targetLanguage,
+  });
+
+  data.detection = detection;
+  data.subtitleLabel = Lang.getSubtitleStatusLabel({
+    captionTracks: data.captionTracks,
+    enableSubtitles,
+    detectedCode: detection.code,
+    targetLanguage,
+    ambiguous: detection.ambiguous,
+  });
+
+  rlog.dim(
+    `attachDetection — method: ${detection.method}, code: ${detection.code ?? 'null'}, ` +
+    `ambiguous: ${detection.ambiguous}, subtitle: ${data.subtitleLabel}`
+  );
+
+  return data;
+}
+
 // ─── Data extraction ──────────────────────────────────────────────────────────
 
 /**
@@ -203,7 +245,7 @@ function pollAndDispatch(expectedVideoId) {
       rlog.info(
         `Player response matched via ${resolved.source} after ${Date.now() - start}ms. Extracting data...`
       );
-      const data = extractPageData(resolved.ipr);
+      const data = attachDetection(extractPageData(resolved.ipr));
       data.resolveSource = resolved.source;
       rlog.dim('Dispatching babeltube:page-data event with payload:', JSON.stringify({
         videoId: data.videoId,
@@ -211,6 +253,8 @@ function pollAndDispatch(expectedVideoId) {
         captionTrackCount: data.captionTracks.length,
         playerAudioCode: data.playerAudioCode,
         adaptiveAudioCode: data.adaptiveAudioCode,
+        detectedCode: data.detection?.code ?? null,
+        ambiguous: data.detection?.ambiguous ?? false,
       }));
       document.dispatchEvent(new CustomEvent(BT_EVENT, { detail: data }));
       return;

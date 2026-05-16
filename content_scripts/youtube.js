@@ -18,7 +18,8 @@
 'use strict';
 
 function getLangUtils() {
-  return globalThis.BabelTubeLang ?? (typeof window !== 'undefined' ? window.BabelTubeLang : null);
+  if (typeof BabelTubeLang !== 'undefined') return BabelTubeLang;
+  return globalThis.BabelTubeLang ?? null;
 }
 
 // ─── Debug logger ─────────────────────────────────────────────────────────────
@@ -66,7 +67,10 @@ function loadSettings() {
 
       // Sync DEBUG flag and expose it on the DOM so page-reader.js can read it
       DEBUG = !!settings.debugMode;
-      document.documentElement.dataset.babeltubeDebug = DEBUG ? '1' : '0';
+      const root = document.documentElement;
+      root.dataset.babeltubeDebug = DEBUG ? '1' : '0';
+      root.dataset.babeltubeTargetLanguage = (settings.targetLanguage || 'en').toLowerCase();
+      root.dataset.babeltubeEnableSubtitles = settings.enableSubtitles === false ? '0' : '1';
 
       log.dim('Debug mode: ON');
       log.dim('Settings:', JSON.stringify(settings));
@@ -292,37 +296,57 @@ async function handlePageData(pageData) {
   log.dim('audioLanguageCode (microformat):', audioLanguageCode);
   if (captionTracks.length) log.table(captionTracks);
 
-  const Lang = getLangUtils();
-  if (!Lang) {
-    log.error(
-      'language-utils.js is not loaded in the isolated world. ' +
-      'Reload BabelTube at chrome://extensions (Developer mode → Reload).'
-    );
-    log.groupEnd();
-    return;
-  }
+  let detection = pageData.detection;
+  let subtitleLabel = pageData.subtitleLabel;
 
-  const detection = Lang.detectVideoLanguage({
-    playerAudioCode,
-    adaptiveAudioCode,
-    audioLanguageCode,
-    captionTracks,
-    audioTracks,
-    defaultAudioTrackIndex: defaultAudioTrackIndex ?? 0,
-    targetLanguage: target,
-  });
+  if (detection) {
+    log.info('Using detection from page-reader (MAIN world).');
+  } else {
+    const Lang = getLangUtils();
+    if (!Lang) {
+      log.error(
+        'language-utils.js is not loaded. Reload BabelTube at chrome://extensions (Developer mode → Reload).'
+      );
+      log.groupEnd();
+      return;
+    }
+    detection = Lang.detectVideoLanguage({
+      playerAudioCode,
+      adaptiveAudioCode,
+      audioLanguageCode,
+      captionTracks,
+      audioTracks,
+      defaultAudioTrackIndex: defaultAudioTrackIndex ?? 0,
+      targetLanguage: target,
+    });
+    const Lang2 = Lang;
+    subtitleLabel = Lang2.getSubtitleStatusLabel({
+      captionTracks,
+      enableSubtitles: settings.enableSubtitles !== false,
+      detectedCode: detection.code,
+      targetLanguage: target,
+      ambiguous: detection.ambiguous,
+    });
+  }
   log.groupEnd();
 
   const { code: detectedCode, ambiguous, method } = detection;
   log.info(`Detection result: method="${method}", code="${detectedCode ?? 'null'}", ambiguous=${ambiguous}`);
 
-  const subtitleLabel = Lang.getSubtitleStatusLabel({
-    captionTracks,
-    enableSubtitles: settings.enableSubtitles !== false,
-    detectedCode,
-    targetLanguage: target,
-    ambiguous,
-  });
+  if (!subtitleLabel) {
+    const Lang = getLangUtils();
+    subtitleLabel = Lang?.getSubtitleStatusLabel({
+      captionTracks,
+      enableSubtitles: settings.enableSubtitles !== false,
+      detectedCode,
+      targetLanguage: target,
+      ambiguous,
+    }) ?? (ambiguous
+      ? 'Opening subtitles in target language'
+      : detectedCode === target
+        ? 'Already in target language. No action performed.'
+        : 'No captions');
+  }
   syncPopupDataset(detectedCode, ambiguous, subtitleLabel);
 
   if (ambiguous) {
@@ -379,6 +403,8 @@ async function handlePageData(pageData) {
 // Always log startup — lets user confirm the extension is active even with debug off
 console.log('%c[BabelTube]', 'color:#ff4444;font-weight:bold',
   'Loaded. Enable "Debug mode" in BabelTube Settings (⚙) to see detailed logs.');
+
+loadSettings();
 
 document.addEventListener(BT_EVENT, (e) => {
   removeBanner(); // clear any banner from the previous video

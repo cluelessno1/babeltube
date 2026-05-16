@@ -45,6 +45,30 @@ function isWatchPage(url) {
   }
 }
 
+async function getVideoInfoFromDataset(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const root = document.documentElement;
+        const detected = root.dataset.babeltubeDetected || '';
+        const ambiguous = root.dataset.babeltubeAmbiguous === '1';
+        const subtitleLabel = root.dataset.babeltubeSubtitleStatus || '';
+        if (!detected && !ambiguous && !subtitleLabel) return null;
+        return {
+          detectedCode: detected || null,
+          ambiguous,
+          method: 'dataset',
+          subtitleLabel: subtitleLabel || null,
+        };
+      },
+    });
+    return results?.[0]?.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function getVideoInfo(tabId, targetLanguage, enableSubtitles) {
   try {
     const results = await chrome.scripting.executeScript({
@@ -123,7 +147,10 @@ async function init() {
   if (onWatchPage) {
     const target = (settings.targetLanguage || 'en').toLowerCase();
     const subsEnabled = settings.enableSubtitles !== false;
-    const info = await getVideoInfo(tab.id, target, subsEnabled);
+    let info = await getVideoInfo(tab.id, target, subsEnabled);
+    if (!info) {
+      info = await getVideoInfoFromDataset(tab.id);
+    }
 
     const detectedEl = document.getElementById('lang-detected');
     const subtitleEl = document.getElementById('subtitle-status');
