@@ -45,46 +45,53 @@ function isWatchPage(url) {
   }
 }
 
-// ─── Inject a script into the active tab to read ytInitialPlayerResponse ─────
-
-async function getVideoInfo(tabId) {
+async function getVideoInfo(tabId, targetLanguage, enableSubtitles) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
-      world: 'MAIN', // ytInitialPlayerResponse exists only in the page world
-      func: () => {
-        const ipr = window.ytInitialPlayerResponse;
-        if (!ipr) return null;
+      world: 'MAIN',
+      files: ['content_scripts/language-utils.js'],
+      func: (targetLang, subsEnabled) => {
+        const L = window.BabelTubeLang;
+        if (!L) return null;
 
-        const tracks =
-          ipr?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+        const videoId = L.getWatchVideoIdFromUrl();
+        if (!videoId) return null;
 
-        // Detect video language (same logic as content script)
-        let detectedCode = null;
-        const audioTracks =
-          ipr?.captions?.playerCaptionsTracklistRenderer?.audioTracks;
-        if (audioTracks?.length) {
-          const idx =
-            ipr.captions.playerCaptionsTracklistRenderer
-              .defaultAudioTrackIndex ?? 0;
-          const at = audioTracks[idx] ?? audioTracks[0];
-          const ctIdx = at?.captionTrackIndices?.[0];
-          if (ctIdx !== undefined) {
-            detectedCode = tracks[ctIdx]?.languageCode ?? null;
-          }
-        }
-        if (!detectedCode && tracks.length) {
-          const human = tracks.find((t) => t.kind !== 'asr');
-          detectedCode = (human ?? tracks[0])?.languageCode ?? null;
-        }
+        const resolved = L.resolvePlayerResponse(videoId);
+        if (!resolved?.ipr) return null;
+
+        const cap = L.extractCaptionData(resolved.ipr);
+        const playerAudioCode = L.getPlayerAudioTrackCode();
+        const adaptiveAudioCode = L.getAdaptiveDefaultAudioCode(resolved.ipr);
+
+        const detection = L.detectVideoLanguage({
+          playerAudioCode,
+          adaptiveAudioCode,
+          audioLanguageCode: cap.audioLanguageCode,
+          captionTracks: cap.captionTracks,
+          audioTracks: cap.audioTracks,
+          defaultAudioTrackIndex: cap.defaultAudioTrackIndex,
+          targetLanguage: targetLang,
+        });
+
+        const subtitleLabel = L.getSubtitleStatusLabel({
+          captionTracks: cap.captionTracks,
+          enableSubtitles: subsEnabled,
+          detectedCode: detection.code,
+          targetLanguage: targetLang,
+          ambiguous: detection.ambiguous,
+        });
 
         return {
-          detectedCode: detectedCode?.toLowerCase() ?? null,
-          hasCaptions: tracks.length > 0,
-          hasHumanCaptions: tracks.some((t) => t.kind !== 'asr'),
-          hasAsr: tracks.some((t) => t.kind === 'asr'),
+          detectedCode: detection.code,
+          ambiguous: detection.ambiguous,
+          method: detection.method,
+          subtitleLabel,
+          resolveSource: resolved.source,
         };
       },
+      args: [targetLanguage || 'en', enableSubtitles !== false],
     });
     return results?.[0]?.result ?? null;
   } catch {
@@ -114,32 +121,43 @@ async function init() {
   document.getElementById('lang-target').textContent = targetName;
 
   if (onWatchPage) {
-    // Try to read video info from the tab
-    const info = await getVideoInfo(tab.id);
+    const target = (settings.targetLanguage || 'en').toLowerCase();
+    const subsEnabled = settings.enableSubtitles !== false;
+    const info = await getVideoInfo(tab.id, target, subsEnabled);
 
     const detectedEl = document.getElementById('lang-detected');
     const subtitleEl = document.getElementById('subtitle-status');
 
-    if (info?.detectedCode) {
-      const name = getLanguageName(info.detectedCode);
-      detectedEl.textContent = name;
-      const isForeign =
-        info.detectedCode !== (settings.targetLanguage || 'en').toLowerCase();
+    if (info?.ambiguous) {
+      detectedEl.textContent = "Couldn't determine";
+      detectedEl.className = 'status-value na';
+    } else if (info?.detectedCode) {
+      detectedEl.textContent = getLanguageName(info.detectedCode);
+      const isForeign = info.detectedCode !== target;
       detectedEl.className = `status-value ${isForeign ? 'detected' : 'ok'}`;
     } else {
       detectedEl.textContent = 'Unknown';
       detectedEl.className = 'status-value na';
     }
 
-    if (!settings.enableSubtitles) {
+    if (info?.subtitleLabel) {
+      subtitleEl.textContent = info.subtitleLabel;
+      if (info.subtitleLabel.includes('Already in target')) {
+        subtitleEl.className = 'status-value ok';
+      } else if (info.ambiguous || info.subtitleLabel.includes('Opening')) {
+        subtitleEl.className = 'status-value detected';
+      } else if (info.subtitleLabel.includes('Human subs')) {
+        subtitleEl.className = 'status-value ok';
+      } else if (info.subtitleLabel === 'Auto-translate') {
+        subtitleEl.className = 'status-value detected';
+      } else if (info.subtitleLabel === 'Disabled' || info.subtitleLabel === 'No captions') {
+        subtitleEl.className = 'status-value na';
+      } else {
+        subtitleEl.className = 'status-value ok';
+      }
+    } else if (!subsEnabled) {
       subtitleEl.textContent = 'Disabled';
       subtitleEl.className = 'status-value na';
-    } else if (info?.hasHumanCaptions) {
-      subtitleEl.textContent = 'Human subs ✓';
-      subtitleEl.className = 'status-value ok';
-    } else if (info?.hasAsr) {
-      subtitleEl.textContent = 'Auto-translate';
-      subtitleEl.className = 'status-value detected';
     } else {
       subtitleEl.textContent = 'No captions';
       subtitleEl.className = 'status-value na';

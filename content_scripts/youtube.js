@@ -71,65 +71,11 @@ function loadSettings() {
   });
 }
 
-// ─── Language detection ───────────────────────────────────────────────────────
-
-/**
- * Determines the video's audio language from the caption/audio track data
- * extracted by page-reader.js.
- *
- * Priority:
- *  1. audioTracks[defaultIndex] → resolve captionTrackIndices[0] → languageCode
- *  2. First non-ASR (human) captionTrack → languageCode
- *  3. First ASR captionTrack → languageCode
- */
-function detectLanguage({ captionTracks, audioTracks, debugDump }) {
-  log.group('Language detection');
-  log.dim('Caption tracks received:', captionTracks.length);
-  if (captionTracks.length) log.table(captionTracks);
-  log.dim('Audio tracks received:', audioTracks.length);
-  if (audioTracks.length) log.table(audioTracks);
-
-  // ── Path 1: explicit audio track ────────────────────────────────────────
-  if (audioTracks.length > 0) {
-    const defaultIdx  = audioTracks[0].defaultCaptionTrackIndex ?? 0;
-    const defaultTrack = audioTracks[defaultIdx] ?? audioTracks[0];
-    const ctIdx = defaultTrack?.captionTrackIndices?.[0];
-    if (ctIdx !== undefined && captionTracks[ctIdx]) {
-      const code = captionTracks[ctIdx].languageCode?.toLowerCase();
-      if (code) {
-        log.info(`Language via audioTracks[${defaultIdx}] → captionTracks[${ctIdx}]: "${code}"`);
-        log.groupEnd();
-        return code;
-      }
-    }
-    log.dim('audioTracks present but could not resolve a languageCode from captionTrackIndices.');
-  }
-
-  // ── Path 2: first human caption track ───────────────────────────────────
-  const humanTrack = captionTracks.find((t) => t.kind !== 'asr');
-  if (humanTrack) {
-    const code = humanTrack.languageCode?.toLowerCase();
-    log.info(`Language via first human captionTrack: "${code}" (name="${humanTrack.name}")`);
-    log.groupEnd();
-    return code ?? null;
-  }
-
-  // ── Path 3: first ASR track ──────────────────────────────────────────────
-  const asrTrack = captionTracks.find((t) => t.kind === 'asr');
-  if (asrTrack) {
-    const code = asrTrack.languageCode?.toLowerCase();
-    log.info(`Language via first ASR captionTrack: "${code}"`);
-    log.groupEnd();
-    return code ?? null;
-  }
-
-  log.warn(
-    'No caption tracks at all. This video likely has hardcoded/burned-in subtitles. ' +
-    'Language cannot be detected — BabelTube will not act.'
-  );
-  log.dim('Full debug dump from page-reader:', JSON.stringify(debugDump, null, 2));
-  log.groupEnd();
-  return null;
+function syncPopupDataset(detectedCode, ambiguous, subtitleLabel) {
+  const root = document.documentElement;
+  root.dataset.babeltubeDetected = detectedCode ?? '';
+  root.dataset.babeltubeAmbiguous = ambiguous ? '1' : '0';
+  root.dataset.babeltubeSubtitleStatus = subtitleLabel ?? '';
 }
 
 // ─── Banner ───────────────────────────────────────────────────────────────────
@@ -297,10 +243,23 @@ async function handlePageData(pageData) {
     return;
   }
 
-  const { videoId, captionTracks, audioTracks, debugDump } = pageData;
+  const {
+    videoId,
+    captionTracks,
+    audioTracks,
+    defaultAudioTrackIndex,
+    audioLanguageCode,
+    playerAudioCode,
+    adaptiveAudioCode,
+    resolveSource,
+    debugDump,
+  } = pageData;
   const urlVideoId = getVideoId();
 
-  log.info(`▶ Page data received. videoId from data: "${videoId}", from URL: "${urlVideoId}"`);
+  log.info(
+    `▶ Page data received. videoId: "${videoId}", URL: "${urlVideoId}"` +
+    (resolveSource ? `, source: ${resolveSource}` : '')
+  );
 
   // Stale event guard — videoId from data must match the current URL
   if (videoId && videoId !== urlVideoId) {
@@ -310,22 +269,68 @@ async function handlePageData(pageData) {
 
   if (debugDump?.timedOut) {
     log.error(
-      `page-reader.js timed out waiting for ytInitialPlayerResponse for "${debugDump.expectedVideoId}". ` +
-      `This video may have no ytInitialPlayerResponse at all (rare). ` +
-      `BabelTube cannot act on this video.`
+      `page-reader.js timed out waiting for player response for "${debugDump.expectedVideoId}". ` +
+      `getPlayerResponse id: "${debugDump.getPlayerResponseVideoId ?? 'none'}", ` +
+      `ytIPR id: "${debugDump.actualVideoId ?? 'none'}". BabelTube cannot act on this video.`
     );
     log.dim('Debug dump:', JSON.stringify(debugDump, null, 2));
+    syncPopupDataset(null, false, 'No captions');
     return;
   }
 
   await loadSettings();
 
-  // ── Language detection ──────────────────────────────────────────────────
-  const detectedCode = detectLanguage({ captionTracks, audioTracks, debugDump });
-
-  if (!detectedCode) return; // already logged inside detectLanguage
-
   const target = settings.targetLanguage.toLowerCase();
+
+  log.group('Language detection');
+  log.dim('playerAudioCode:', playerAudioCode);
+  log.dim('adaptiveAudioCode:', adaptiveAudioCode);
+  log.dim('audioLanguageCode (microformat):', audioLanguageCode);
+  if (captionTracks.length) log.table(captionTracks);
+
+  const detection = BabelTubeLang.detectVideoLanguage({
+    playerAudioCode,
+    adaptiveAudioCode,
+    audioLanguageCode,
+    captionTracks,
+    audioTracks,
+    defaultAudioTrackIndex: defaultAudioTrackIndex ?? 0,
+    targetLanguage: target,
+  });
+  log.groupEnd();
+
+  const { code: detectedCode, ambiguous, method } = detection;
+  log.info(`Detection result: method="${method}", code="${detectedCode ?? 'null'}", ambiguous=${ambiguous}`);
+
+  const subtitleLabel = BabelTubeLang.getSubtitleStatusLabel({
+    captionTracks,
+    enableSubtitles: settings.enableSubtitles !== false,
+    detectedCode,
+    targetLanguage: target,
+    ambiguous,
+  });
+  syncPopupDataset(detectedCode, ambiguous, subtitleLabel);
+
+  if (ambiguous) {
+    log.warn(
+      'Multiple human subtitle languages — cannot determine video language; ' +
+      'applying target-language subtitles.'
+    );
+    if (settings.enableSubtitles) {
+      selectSubtitleTrack(captionTracks);
+    } else {
+      log.dim('Subtitle selection disabled in settings.');
+    }
+    log.info('▶ Done (ambiguous).');
+    return;
+  }
+
+  if (!detectedCode) {
+    log.warn('Could not determine video language — no banner or subtitle changes.');
+    log.dim('Debug dump:', JSON.stringify(debugDump, null, 2));
+    return;
+  }
+
   log.info(`Detected: "${detectedCode}" (${langName(detectedCode)}) | Target: "${target}" (${langName(target)})`);
 
   if (detectedCode === target) {
@@ -336,7 +341,6 @@ async function handlePageData(pageData) {
   const sourceName = langName(detectedCode);
   log.info(`Foreign language confirmed — activating BabelTube.`);
 
-  // ── Banner ──────────────────────────────────────────────────────────────
   if (settings.showBanner) {
     if (isBannerDismissed(urlVideoId)) {
       log.dim(`Banner already dismissed for "${urlVideoId}" this session.`);
@@ -347,11 +351,7 @@ async function handlePageData(pageData) {
     log.dim('Banner disabled in settings.');
   }
 
-  // ── Subtitles ───────────────────────────────────────────────────────────
   if (settings.enableSubtitles) {
-    // selectSubtitleTrack picks the best track and dispatches 'babeltube:select-track'.
-    // page-reader.js (MAIN world) receives it and calls player.setOption() there,
-    // because setOption is a YouTube JS method invisible to this isolated world.
     selectSubtitleTrack(captionTracks);
   } else {
     log.dim('Subtitle selection disabled in settings.');

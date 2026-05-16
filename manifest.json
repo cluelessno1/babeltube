@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BabelTube",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Auto-selects subtitles and guides page translation for foreign-language YouTube videos.",
   "author": "cluelessno1",
 
@@ -22,13 +22,13 @@
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/watch*"],
-      "js": ["content_scripts/page-reader.js"],
+      "js": ["content_scripts/language-utils.js", "content_scripts/page-reader.js"],
       "run_at": "document_idle",
       "world": "MAIN"
     },
     {
       "matches": ["*://*.youtube.com/watch*"],
-      "js": ["content_scripts/youtube.js"],
+      "js": ["content_scripts/language-utils.js", "content_scripts/youtube.js"],
       "run_at": "document_idle",
       "world": "ISOLATED"
     }

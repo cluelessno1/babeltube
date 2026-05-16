@@ -129,7 +129,7 @@ BabelTube uses two content scripts to work around Chrome's extension isolation:
 │  • Role: reads settings, shows banner, selects subtitle tracks  │
 └─────────────────────────────────────────────────────────────────┘
 
-The toolbar **popup** reads `ytInitialPlayerResponse` via `chrome.scripting.executeScript` with `world: 'MAIN'` (same reason as `page-reader.js`).
+The toolbar **popup** uses shared [`language-utils.js`](content_scripts/language-utils.js) via `chrome.scripting.executeScript` (`world: 'MAIN'`). Language detection prefers `getAudioTrack()`, `getPlayerResponse()`, then microformat/caption rules (v1.0.2).
 ```
 
 ### Common issues
@@ -141,7 +141,9 @@ The toolbar **popup** reads `ytInitialPlayerResponse` via `chrome.scripting.exec
 | `Player not ready after 15000ms` | YouTube changed `#movie_player` | Inspect the player DOM for a new selector |
 | Banner shows but subtitles don't switch | `setOption` API changed | Log the track object and test manually: `document.querySelector('#movie_player').setOption('captions','track',{...})` |
 | Debug logs not appearing | Debug mode is off | Enable in Settings → Developer → Debug mode |
-| Popup shows Unknown / No captions on a working video | Popup script ran in isolated world (fixed in v1.0.1+) | Reload extension; popup must use MAIN-world inject |
+| Popup shows Unknown / No captions on a working video | Fixed in v1.0.1 (MAIN inject) | Reload extension |
+| Wrong video language (e.g. English on Korean video) | Caption list order / stale IPR (fixed in v1.0.2) | Enable debug mode; check `[BabelTube:lang]` logs for detection method |
+| Playlist next video — timeout, no subs | Stale `ytInitialPlayerResponse` (fixed in v1.0.2) | Uses `getPlayerResponse()` when URL `v=` updates |
 
 ---
 
@@ -224,6 +226,7 @@ babeltube/
 │   └── SCREENSHOTS.md
 ├── background.js                   # Service worker — seeds default settings on install
 ├── content_scripts/
+│   ├── language-utils.js           # Shared detection (MAIN + ISOLATED)
 │   ├── page-reader.js              # MAIN world — reads YouTube JS globals
 │   └── youtube.js                  # ISOLATED world — chrome.storage, banner, subtitles
 ├── popup/

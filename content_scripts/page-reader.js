@@ -65,22 +65,16 @@ function safeJson(obj) {
  */
 function extractPageData(ipr) {
   const renderer = ipr?.captions?.playerCaptionsTracklistRenderer ?? null;
+  const cap = BabelTubeLang.extractCaptionData(ipr);
+  const playerAudioCode = BabelTubeLang.getPlayerAudioTrackCode();
+  const adaptiveAudioCode = BabelTubeLang.getAdaptiveDefaultAudioCode(ipr);
 
-  // Caption tracks — only the fields we use downstream
-  const captionTracks = (renderer?.captionTracks ?? []).map((t) => ({
-    languageCode:   t.languageCode,
-    kind:           t.kind,          // 'asr' = auto-generated; absent = human
-    vssId:          t.vssId,
-    name:           t.name?.simpleText ?? t.name?.runs?.[0]?.text ?? null,
-    isTranslatable: t.isTranslatable ?? false,
-  }));
+  const { captionTracks, audioTracks, defaultAudioTrackIndex, audioLanguageCode } = cap;
 
-  // Audio tracks — used to resolve default audio language on multi-dub videos
-  const audioTracks = (renderer?.audioTracks ?? []).map((at, idx) => ({
-    index:                  idx,
-    captionTrackIndices:    at.captionTrackIndices ?? [],
-    defaultCaptionTrackIndex: renderer?.defaultAudioTrackIndex ?? 0,
-  }));
+  rlog.dim(
+    `extractPageData — playerAudio: ${playerAudioCode ?? 'none'}, ` +
+    `adaptive: ${adaptiveAudioCode ?? 'none'}, microformat: ${audioLanguageCode ?? 'none'}`
+  );
 
   // ── Comprehensive debug dump ───────────────────────────────────────────────
   // Everything a developer might need to diagnose detection failures.
@@ -134,6 +128,8 @@ function extractPageData(ipr) {
           category:         m.category,
           publishDate:      m.publishDate,
           uploadDate:       m.uploadDate,
+          defaultAudioLanguageISO639_1: m.defaultAudioLanguageISO639_1 ?? null,
+          audioLanguage:    m.audioLanguage ?? null,
           availableCountries: m.availableCountries?.length
             ? `${m.availableCountries.length} countries`
             : '(none listed)',
@@ -154,9 +150,13 @@ function extractPageData(ipr) {
   };
 
   return {
-    videoId:      ipr.videoDetails?.videoId ?? null,
+    videoId: ipr.videoDetails?.videoId ?? null,
     captionTracks,
     audioTracks,
+    defaultAudioTrackIndex,
+    audioLanguageCode,
+    playerAudioCode,
+    adaptiveAudioCode,
     debugDump,
   };
 }
@@ -165,30 +165,50 @@ function extractPageData(ipr) {
 
 function pollAndDispatch(expectedVideoId) {
   const start = Date.now();
-  rlog.info(`Polling for ytInitialPlayerResponse (videoId="${expectedVideoId}")...`);
+  rlog.info(`Polling for player response (videoId="${expectedVideoId}")...`);
 
   const tick = () => {
-    const ipr = window.ytInitialPlayerResponse;
-    const actualId = ipr?.videoDetails?.videoId;
+    const resolved = BabelTubeLang.resolvePlayerResponse(expectedVideoId);
+    const staleIpr = window.ytInitialPlayerResponse;
+    const staleId = staleIpr?.videoDetails?.videoId;
 
-    rlog.dim(`Poll tick — ytIPR videoId: "${actualId ?? 'none'}", expected: "${expectedVideoId}", elapsed: ${Date.now() - start}ms`);
+    rlog.dim(
+      `Poll tick — resolved: ${resolved?.source ?? 'none'}, ` +
+      `resolvedId: "${resolved?.ipr?.videoDetails?.videoId ?? 'none'}", ` +
+      `ytIPR id: "${staleId ?? 'none'}", expected: "${expectedVideoId}", ` +
+      `elapsed: ${Date.now() - start}ms`
+    );
 
-    if (ipr && actualId === expectedVideoId) {
-      rlog.info(`ytInitialPlayerResponse matched after ${Date.now() - start}ms. Extracting data...`);
-      const data = extractPageData(ipr);
+    if (resolved?.ipr) {
+      rlog.info(
+        `Player response matched via ${resolved.source} after ${Date.now() - start}ms. Extracting data...`
+      );
+      const data = extractPageData(resolved.ipr);
+      data.resolveSource = resolved.source;
       rlog.dim('Dispatching babeltube:page-data event with payload:', JSON.stringify({
         videoId: data.videoId,
+        resolveSource: data.resolveSource,
         captionTrackCount: data.captionTracks.length,
-        audioTrackCount: data.audioTracks.length,
+        playerAudioCode: data.playerAudioCode,
+        adaptiveAudioCode: data.adaptiveAudioCode,
       }));
       document.dispatchEvent(new CustomEvent(BT_EVENT, { detail: data }));
       return;
     }
 
     if (Date.now() - start > TIMEOUT_MS) {
+      let getPlayerResponseId = null;
+      try {
+        const p = document.querySelector('#movie_player');
+        if (p && typeof p.getPlayerResponse === 'function') {
+          getPlayerResponseId = p.getPlayerResponse()?.videoDetails?.videoId ?? null;
+        }
+      } catch (_) { /* ignore */ }
+
       rlog.warn(
         `Timed out after ${TIMEOUT_MS}ms. ` +
-        `ytIPR videoId is "${actualId ?? 'none'}", expected "${expectedVideoId}". ` +
+        `getPlayerResponse id: "${getPlayerResponseId ?? 'none'}", ` +
+        `ytIPR id: "${staleId ?? 'none'}", expected "${expectedVideoId}". ` +
         `Dispatching timeout event so youtube.js can log a helpful error.`
       );
       document.dispatchEvent(new CustomEvent(BT_EVENT, {
@@ -196,12 +216,16 @@ function pollAndDispatch(expectedVideoId) {
           videoId: null,
           captionTracks: [],
           audioTracks: [],
+          defaultAudioTrackIndex: 0,
+          audioLanguageCode: null,
+          playerAudioCode: null,
+          adaptiveAudioCode: null,
           debugDump: {
             timedOut: true,
             expectedVideoId,
-            actualVideoId: actualId ?? null,
-            hasYtInitialPlayerResponse: !!ipr,
-            // Dump ytcfg even on timeout — useful for diagnosing why IPR never appeared
+            actualVideoId: staleId ?? null,
+            getPlayerResponseVideoId: getPlayerResponseId,
+            hasYtInitialPlayerResponse: !!staleIpr,
             ytcfg: (() => {
               try {
                 const d = window.ytcfg?.data_ ?? {};
